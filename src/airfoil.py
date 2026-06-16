@@ -1,5 +1,4 @@
 import numpy as np
-from typing import Union, List
 from abc import ABC, abstractmethod
 
 
@@ -17,13 +16,12 @@ class Airfoil(ABC):
         self.n_panels = n_panels
 
     @abstractmethod
-    def camber(self, x: Union[List[float], np.ndarray]) -> np.ndarray:
+    def camber(self) -> np.ndarray:
         """
-        Returns an array of 2D points representing the camber line evaluated
-        at each point in x.
+        Returns an array of 2D points representing the camber line at
+        uniformly spaced panel endpoints from x=0 to x=c.
 
-        :param x: x-coordinates along the camber line
-        :return: A 2D numpy array of shape (N, 2) where each row is [x, y]
+        :return: A 2D numpy array of shape (n_panels + 1, 2) where each row is [x, y]
         """
         pass
 
@@ -51,12 +49,13 @@ class Naca4Digit(Airfoil):
         self.m = float(code[0]) / 100.0  # Maximum camber
         self.p = float(code[1]) / 10.0  # Position of maximum camber
 
-    def camber(self, x: Union[List[float], np.ndarray]) -> np.ndarray:
+    def camber(self) -> np.ndarray:
         """
         Evaluates the camber line of a NACA 4-digit airfoil using the official NACA definition.
-        Returns a 2D array of shape (N, 2) containing the [x, y] coordinates.
+        Returns a 2D array of shape (n_panels + 1, 2) containing the [x, y] coordinates
+        at uniformly spaced panel endpoints along the chord.
         """
-        x_dim = np.asarray(x)
+        x_dim = np.linspace(0.0, self.c, self.n_panels + 1)
         y = np.zeros_like(x_dim, dtype=float)
 
         # Calculate the camberline based on the given sections
