@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Exit immediately if something fails
+set -e
+
+# Check that python3 is installed
+if ! command -v python3 &> /dev/null; then
+    echo "Error: python3 is not installed or not available in PATH."
+    exit 1
+fi
+
+# Check that main.py exists - it SHOULD
+if [ ! -f "main.py" ]; then
+    echo "Error: main.py not found in the current directory."
+    exit 1
+fi
+
+# Check that pip is available
+if ! python3 -m pip --version &> /dev/null; then
+    echo "Warning: pip is not available for this Python installation."
+    echo "Skipping package checks."
+else
+    # If requirements.txt exists, check that required packages are installed
+    if [ -f "requirements.txt" ]; then
+        echo "Checking Python packages from requirements.txt..."
+
+        if ! python3 -m pip check &> /dev/null; then
+            echo "Warning: Some installed Python packages may have dependency issues."
+            python3 -m pip check
+        fi
+
+        missing_packages=0
+
+        while read -r requirement; do
+            # Skip empty lines and comments
+            [[ -z "$requirement" || "$requirement" =~ ^# ]] && continue
+
+            package=$(echo "$requirement" | sed 's/[<>=!~].*//')
+
+            if ! python3 -m pip show "$package" &> /dev/null; then
+                echo "Missing package: $package"
+                missing_packages=1
+            fi
+        done < requirements.txt
+
+        if [ "$missing_packages" -eq 1 ]; then
+            echo ""
+            echo "Error: Some required packages are missing."
+            echo "Install them using:"
+            echo "  python3 -m pip install -r requirements.txt"
+            exit 1
+        fi
+    else
+        echo "No requirements.txt found. Skipping package checks."
+    fi
+fi
+
+# Run the main file
+python3 main.py
