@@ -22,8 +22,6 @@ if ! python3 -m pip --version &> /dev/null; then
 else
     # If requirements.txt exists, check that required packages are installed
     if [ -f "requirements.txt" ]; then
-        echo "Checking Python packages from requirements.txt..."
-
         if ! python3 -m pip check &> /dev/null; then
             echo "Warning: Some installed Python packages may have dependency issues."
             python3 -m pip check

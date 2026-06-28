@@ -23,3 +23,33 @@ class SolverUtils:
         if norm == 0:
             return normal
         return normal / norm
+
+    @classmethod
+    def vel_induced_by_vortex(
+        cls, p_i: np.ndarray, p_v: np.ndarray, gamma: float
+    ) -> np.ndarray:
+        """Calculates the velocity induced at p_i by a vortex located at p_v
+
+        Args:
+            p_i (np.ndarray): Location of point where the induced velocity is calculated
+            p_v (np.ndarray): Location of the vortex
+            gamma (float): Strength of the vortex
+
+        Returns:
+            np.ndarray: (2,) vector representing (u,w), ie. the velocity induced.
+        """
+
+        x_i, z_i = p_i
+        x_v, z_v = p_v
+
+        r_squared = (x_i - x_v) ** 2 + (z_i - z_v) ** 2
+
+        rhs_mat = np.array([[0, 1], [-1, 0]])
+        rhs_vec = np.array(
+            [
+                x_i - x_v,
+                z_i - z_v,
+            ]
+        )
+
+        return gamma / (2 * np.pi * r_squared) * (rhs_mat @ rhs_vec)
