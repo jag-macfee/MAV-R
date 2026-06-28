@@ -25,6 +25,16 @@ class Airfoil(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_name(self) -> str:
+        """
+        Gets the name of the airfoil, ie. a NACA2412 airfoil will return "NACA2412"
+
+        Returns:
+            str: The airfoil's name (for display purposes)
+        """
+        pass
+
     @classmethod
     def from_code(cls, code: str, c: float, n_panels: int) -> "Airfoil":
         """
@@ -36,6 +46,20 @@ class Airfoil(ABC):
             return Naca4Digit(code, c, n_panels)
 
         raise ValueError(f"Unsupported airfoil code: {code}")
+
+    @classmethod
+    def flat_plate(cls, c: float, n_panels: int) -> "Airfoil":
+        """
+        Returns a flat plate Airfoil object
+
+        Args:
+            c (float): chord length (m)
+            n_panels (int): number of panels
+
+        Returns:
+            Airfoil: Flat plate Airfoil class instance
+        """
+        return FlatPlate(c, n_panels)
 
 
 class Naca4Digit(Airfoil):
@@ -58,16 +82,46 @@ class Naca4Digit(Airfoil):
         x_dim = np.linspace(0.0, self.c, self.n_panels + 1)
         y = np.zeros_like(x_dim, dtype=float)
 
-        # Calculate the camberline based on the given sections
+        # Symmetric NACA airfoil, e.g. NACA 0012
+        if self.m == 0 or self.p == 0:
+            return np.column_stack((x_dim, y))
+
         for i, val in enumerate(x_dim):
             x_c = val / self.c
-            if 0 <= x_c < self.p:
-                y[i] = self.c * (self.m / (self.p**2)) * (2 * self.p * x_c - x_c**2)
-            elif self.p <= x_c <= 1:
+
+            if x_c < self.p:
+                y[i] = self.c * (self.m / self.p**2) * (2 * self.p * x_c - x_c**2)
+            else:
                 y[i] = (
                     self.c
-                    * (self.m / ((1 - self.p) ** 2))
+                    * (self.m / (1 - self.p) ** 2)
                     * ((1 - 2 * self.p) + 2 * self.p * x_c - x_c**2)
                 )
 
         return np.column_stack((x_dim, y))
+
+    def get_name(self):
+        return "NACA" + self.code
+
+
+class FlatPlate(Airfoil):
+    """
+    Subclass of Airfoil representing a flat plate
+    """
+
+    def __init__(self, c: float, n_panels: int):
+        super().__init__(c, n_panels)
+
+    def camber(self) -> np.ndarray:
+        """
+        Evaluates camber line of a flat plate (all y-values are set to 0), and returns a list of
+        points which represent the flat plate geometry.
+        Returns a 2D array of shape (n_panels + 1, 2) containing the [x, y] coordinates
+        at uniformly spaced panel endpoints along the chord.
+        """
+        x_dim = np.linspace(0.0, self.c, self.n_panels + 1)
+        y = np.zeros_like(x_dim, dtype=float)
+        return np.column_stack((x_dim, y))
+
+    def get_name(self):
+        return "Flat plate"
