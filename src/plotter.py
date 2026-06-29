@@ -73,3 +73,29 @@ class Plotter:
         plt.axis("equal")
         plt.grid(True)
         plt.show()
+
+    @staticmethod
+    def plot_points(points: np.ndarray, debug: bool = False):
+        """A more general method than `plot_camberline()`, this method simply plots
+        a series of points which are passed in. Useful for visualising rotational transformations.
+
+        Args:
+            points (np.ndarray): (N, 2) size np.ndarray of points
+            debug (bool, optional): If `True`, prints the points to terminal. Defaults to False.
+        """
+        x = points[:, 0]
+        y = points[:, 1]
+
+        if debug:
+            print(x)
+            print(y)
+            print(points)
+
+        plt.figure()
+        plt.plot(x, y, marker="o")
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.title(f"Point plot")
+        plt.axis("equal")
+        plt.grid(True)
+        plt.show()

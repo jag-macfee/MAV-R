@@ -14,11 +14,12 @@ class Airfoil(ABC):
         """
         self.c = c
         self.n_panels = n_panels
+        self.delta_x = c / n_panels
 
     @abstractmethod
     def camber(self) -> np.ndarray:
         """
-        Returns an array of 2D points representing the camber line at
+        Returns an array of 2D points representing the camber line (pre-rotational transform) at
         uniformly spaced panel endpoints from x=0 to x=c.
 
         :return: A 2D numpy array of shape (n_panels + 1, 2) where each row is [x, y]
@@ -72,13 +73,20 @@ class Naca4Digit(Airfoil):
         self.code = code
         self.m = float(code[0]) / 100.0  # Maximum camber
         self.p = float(code[1]) / 10.0  # Position of maximum camber
+        self.camber_points = None
 
     def camber(self) -> np.ndarray:
         """
         Evaluates the camber line of a NACA 4-digit airfoil using the official NACA definition.
         Returns a 2D array of shape (n_panels + 1, 2) containing the [x, y] coordinates
         at uniformly spaced panel endpoints along the chord.
+
+        If this method has not been called before, calculate the camber line and set `Airfoil.camber_points` to be the result.
+        Otherwise, return the already-calculated points.
         """
+        if self.camber_points is not None:
+            return self.camber_points
+
         x_dim = np.linspace(0.0, self.c, self.n_panels + 1)
         y = np.zeros_like(x_dim, dtype=float)
 
@@ -98,7 +106,8 @@ class Naca4Digit(Airfoil):
                     * ((1 - 2 * self.p) + 2 * self.p * x_c - x_c**2)
                 )
 
-        return np.column_stack((x_dim, y))
+        self.camber_points = np.column_stack((x_dim, y))
+        return self.camber_points
 
     def get_name(self):
         return "NACA" + self.code
@@ -111,6 +120,7 @@ class FlatPlate(Airfoil):
 
     def __init__(self, c: float, n_panels: int):
         super().__init__(c, n_panels)
+        self.camber_points = None
 
     def camber(self) -> np.ndarray:
         """
@@ -119,9 +129,14 @@ class FlatPlate(Airfoil):
         Returns a 2D array of shape (n_panels + 1, 2) containing the [x, y] coordinates
         at uniformly spaced panel endpoints along the chord.
         """
+        if self.camber_points is not None:
+            return self.camber_points
+
         x_dim = np.linspace(0.0, self.c, self.n_panels + 1)
         y = np.zeros_like(x_dim, dtype=float)
-        return np.column_stack((x_dim, y))
+
+        self.camber_points = np.column_stack((x_dim, y))
+        return self.camber_points
 
     def get_name(self):
         return "Flat plate"
