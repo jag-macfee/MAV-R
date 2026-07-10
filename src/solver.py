@@ -39,17 +39,20 @@ class Solver:
         strategy: Optional[VortexLumpingStrategy],
         num_time_steps: int,
         Q_inf: Tuple[Callable[[float], float], Callable[[float], float]],
+        alpha: float,
     ):
         """
         :param airfoil: The airfoil being simulated.
         :param strategy: The vortex lumping strategy to use, or None to disable lumping.
         :param num_time_steps: Number of time steps to solve over.
         :param Q_inf: A 2D vector containing functions of t describing freestream/gust shape.
+        :param alpha: the angle-of-attack to be used in this simulation (note: AoA is constant)
         """
         self.airfoil = airfoil
         self.strategy = strategy
         self.num_time_steps = num_time_steps
         self.Q_inf = Q_inf
+        self.alpha = alpha
 
         self.bound_gamma_history: List[np.ndarray] = []
         self.wake_gamma_history: List[np.ndarray] = []
@@ -69,7 +72,7 @@ class Solver:
         # Stub implementation of integration over self.num_time_steps and
         # interactions with self.strategy. Each time-step row can vary in length
         # due to vortex lumping, but should not exceed strategy.max_vortices.
-        for t in range(self.num_time_steps):
+        for t in range(1, self.num_time_steps):
             _ = t
             # Placeholder rows: in a full implementation these rows contain
             # gamma values associated with 2D point positions.
@@ -93,3 +96,7 @@ class Solver:
             wake_gamma_history=self.wake_gamma_history,
             lift_history=self.lift_history,
         )
+
+    # Helper functions for Solver class
+    def solve_singular_timestep(self, k: int):
+        pass
