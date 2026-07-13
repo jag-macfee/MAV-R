@@ -84,6 +84,7 @@ class Airfoil(ABC):
         """
         Takes in an airfoil code, such as a NACA 4-digit or 6-digit code,
         and returns an instance of the appropriate airfoil subclass.
+        Supply just the code number, eg. "4412"
         """
         # A simple parser for NACA 4-digit airfoils as an example
         if len(code) == 4 and code.isdigit():
