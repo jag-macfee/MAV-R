@@ -20,7 +20,7 @@ class Plotter:
     @staticmethod
     def _prepare_combined_gamma_history(
         result: "SolveResult",
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Convert bound and wake histories into rectangular plotting arrays.
 
         Bound circulation is placed first in every row, followed by the wake
@@ -28,16 +28,17 @@ class Plotter:
         circulation so that every row has the same length.
 
         A missing wake vortex has no physical position of its own. For plotting
-        its zero value, the x-position is taken from the first time step at which
-        that wake slot exists. This gives the zero-padded region a consistent
-        horizontal location without modifying any solved vortex positions.
+        its zero value, the point is taken from the first time step at which that
+        wake slot exists. This gives the zero-padded region a consistent location
+        without modifying any solved vortex positions.
 
         Args:
             result: Result returned by ``Solver.solve()``.
 
         Returns:
-            A tuple ``(x_history, gamma_history)``. Both arrays have shape
-            ``(num_time_steps, num_bound_vortices + max_num_wake_vortices)``.
+            A tuple ``(x_history, z_history, gamma_history)``. Each array has
+            shape ``(num_time_steps, num_bound_vortices +
+            max_num_wake_vortices)``.
 
         Raises:
             ValueError: If the histories are empty, have different numbers of
@@ -76,6 +77,11 @@ class Plotter:
             np.nan,
             dtype=float,
         )
+        z_history = np.full(
+            (num_time_steps, total_num_vortices),
+            np.nan,
+            dtype=float,
+        )
 
         for timestep_index, (bound_row, wake_row) in enumerate(
             zip(bound_history, wake_history)
@@ -89,29 +95,132 @@ class Plotter:
             x_history[timestep_index, :row_length] = [
                 point_value.x for point_value in combined_row
             ]
-
-        # Each padded wake entry has Gamma = 0. Use the first known x-position
-        # for that wake slot so the padded zero can still be displayed.
-        for column_index in range(total_num_vortices):
-            known_positions = x_history[
-                np.isfinite(x_history[:, column_index]),
-                column_index,
+            z_history[timestep_index, :row_length] = [
+                point_value.z for point_value in combined_row
             ]
 
-            if len(known_positions) == 0:
+        # Each padded wake entry has Gamma = 0. Use the first known point
+        # for that wake slot so the padded zero can still be displayed.
+        for column_index in range(total_num_vortices):
+            known_mask = np.isfinite(x_history[:, column_index]) & np.isfinite(
+                z_history[:, column_index]
+            )
+
+            if not np.any(known_mask):
                 raise ValueError(
-                    f"No x-position is available for circulation column {column_index}"
+                    f"No position is available for circulation column {column_index}"
                 )
 
-            x_history[
-                ~np.isfinite(x_history[:, column_index]),
-                column_index,
-            ] = known_positions[0]
+            first_known_index = int(np.flatnonzero(known_mask)[0])
+            missing_mask = ~known_mask
+            x_history[missing_mask, column_index] = x_history[
+                first_known_index, column_index
+            ]
+            z_history[missing_mask, column_index] = z_history[
+                first_known_index, column_index
+            ]
 
-        return x_history, gamma_history
+        return x_history, z_history, gamma_history
 
     @staticmethod
-    def plot_history_3D(result: "SolveResult") -> None:
+    def _normalise_gamma_history(
+        result: "SolveResult",
+        x_history: np.ndarray,
+        z_history: np.ndarray,
+        gamma_history: np.ndarray,
+        airfoil: Airfoil,
+        v_0: float,
+        alpha: float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Convert circulation to normalised circulation density.
+
+        The plotted quantities are
+
+        ``x_normalised = x_chord / c``
+
+        and
+
+        ``gamma_normalised = Gamma / (panel_length * v_0)``.
+
+        ``x_chord`` is obtained by rotating each solved vortex position back
+        into the pre-angle-of-attack airfoil frame and taking its chordwise
+        coordinate. Actual camber-line panel lengths are used for the bound
+        vortices. Each wake vortex is divided by ``airfoil.delta_x``, because one
+        wake vortex is shed per time step and represents the circulation
+        associated with one chordwise panel spacing.
+
+        Args:
+            result: Result returned by ``Solver.solve()``.
+            x_history: Rectangular vortex x-position history in the rotated
+                solver frame.
+            z_history: Rectangular vortex z-position history in the rotated
+                solver frame.
+            gamma_history: Rectangular circulation history.
+            airfoil: Airfoil used by the solver.
+            v_0: Gust upwash strength used to normalise circulation density.
+            alpha: Clockwise angle of attack in degrees used by the solver.
+
+        Returns:
+            A tuple ``(x_over_c, gamma_density_over_v_0)``.
+
+        Raises:
+            ValueError: If the airfoil geometry or ``v_0`` is invalid, or the
+                number of airfoil panels does not match the bound history.
+        """
+        if not np.isfinite(v_0) or np.isclose(v_0, 0.0):
+            raise ValueError("v_0 must be finite and non-zero when normalised=True")
+        if not np.isfinite(airfoil.c) or airfoil.c <= 0.0:
+            raise ValueError("airfoil chord must be finite and positive")
+        if not np.isfinite(airfoil.delta_x) or airfoil.delta_x <= 0.0:
+            raise ValueError("airfoil panel spacing must be finite and positive")
+
+        num_bound_vortices = len(result.bound_gamma_history[0])
+        camber_points = np.asarray(airfoil.camber(), dtype=float)
+
+        if camber_points.shape != (num_bound_vortices + 1, 2):
+            raise ValueError(
+                "airfoil camber geometry must contain one more point than the "
+                "number of bound vortices"
+            )
+
+        bound_panel_lengths = np.linalg.norm(
+            np.diff(camber_points, axis=0),
+            axis=1,
+        )
+        if np.any(~np.isfinite(bound_panel_lengths)) or np.any(
+            bound_panel_lengths <= 0.0
+        ):
+            raise ValueError("all airfoil panel lengths must be finite and positive")
+
+        num_wake_columns = gamma_history.shape[1] - num_bound_vortices
+        wake_element_lengths = np.full(
+            num_wake_columns,
+            airfoil.delta_x,
+            dtype=float,
+        )
+        element_lengths = np.concatenate([bound_panel_lengths, wake_element_lengths])
+
+        if not np.isfinite(alpha):
+            raise ValueError("alpha must be finite")
+
+        # Solver geometry is rotated clockwise through alpha. Applying the
+        # inverse rotation recovers the pre-rotation chordwise coordinate:
+        # x_chord = x*cos(alpha) - z*sin(alpha).
+        alpha_rad = np.deg2rad(alpha)
+        x_chord = x_history * np.cos(alpha_rad) - z_history * np.sin(alpha_rad)
+        x_over_c = x_chord / airfoil.c
+        gamma_density_over_v_0 = gamma_history / (element_lengths[np.newaxis, :] * v_0)
+
+        return x_over_c, gamma_density_over_v_0
+
+    @staticmethod
+    def plot_history_3D(
+        result: "SolveResult",
+        normalised: bool = False,
+        v_0: Optional[float] = None,
+        airfoil: Optional[Airfoil] = None,
+        alpha: float = 0.0,
+    ) -> None:
         """Plot the complete bound-and-wake circulation history in 3D.
 
         Each time step is represented by two traces at the same time-step value:
@@ -120,10 +229,46 @@ class Plotter:
         consistent colour and all wake traces use another, avoiding a different
         colour for every time step. Missing wake entries remain zero-padded.
 
+        When ``normalised`` is true, each vortex position is first rotated back
+        into the pre-angle-of-attack airfoil frame. Its chordwise coordinate is
+        then plotted as ``x_chord / c``, and circulation is converted to circulation density and normalised by the
+        gust strength:
+
+        ``gamma / v_0 = Gamma / (panel_length * v_0)``.
+
         Args:
             result: Result returned by ``Solver.solve()``.
+            normalised: Plot normalised circulation density if true.
+            v_0: Gust upwash strength. Required when ``normalised`` is true.
+            airfoil: Airfoil used by the solver. Required when ``normalised`` is
+                true so that chord and panel lengths are available.
+            alpha: Clockwise angle of attack in degrees used by the solver. It is
+                used to recover pre-rotation chordwise vortex positions.
+
+        Raises:
+            ValueError: If normalisation is requested without a valid ``v_0``
+                and ``airfoil``.
         """
-        x_history, gamma_history = Plotter._prepare_combined_gamma_history(result)
+        x_history, z_history, gamma_history = Plotter._prepare_combined_gamma_history(
+            result
+        )
+
+        if normalised:
+            if airfoil is None:
+                raise ValueError("airfoil must be supplied when normalised=True")
+            if v_0 is None:
+                raise ValueError("v_0 must be supplied when normalised=True")
+
+            x_history, gamma_history = Plotter._normalise_gamma_history(
+                result,
+                x_history,
+                z_history,
+                gamma_history,
+                airfoil,
+                v_0,
+                alpha,
+            )
+
         num_bound_vortices = len(result.bound_gamma_history[0])
 
         bound_x = x_history[:, :num_bound_vortices]
@@ -174,10 +319,16 @@ class Plotter:
                     label="Wake vortices" if timestep_index == 0 else None,
                 )
 
-        ax.set_xlabel("x position")
+        if normalised:
+            ax.set_xlabel(r"Normalised chordwise position, $x_{chord}/c$")
+            ax.set_zlabel(r"Normalised circulation density, $\gamma/v_0$")
+            ax.set_title("Normalised Bound and Wake Circulation Density over Time")
+        else:
+            ax.set_xlabel("x position")
+            ax.set_zlabel(r"Circulation, $\Gamma$")
+            ax.set_title("Bound and Wake Circulation Distribution over Time")
+
         ax.set_ylabel("Time step, k")
-        ax.set_zlabel("Circulation, Gamma")
-        ax.set_title("Bound and Wake Circulation Distribution over Time")
         ax.legend()
 
         plt.tight_layout()
@@ -187,6 +338,10 @@ class Plotter:
     def plot_history_2D(
         result: "SolveResult",
         num_snapshots: int,
+        normalised: bool = False,
+        v_0: Optional[float] = None,
+        airfoil: Optional[Airfoil] = None,
+        alpha: float = 0.0,
     ) -> None:
         """Plot evenly distributed bound-and-wake circulation snapshots.
 
@@ -200,15 +355,47 @@ class Plotter:
         more than one snapshot is requested. For example, four snapshots from a
         ten-step result use k = 1, 4, 7, and 10.
 
+        When ``normalised`` is true, each vortex position is first rotated back
+        into the pre-angle-of-attack airfoil frame. Its chordwise coordinate is
+        then plotted as ``x_chord / c``, and circulation is converted to circulation density and normalised by the
+        gust strength:
+
+        ``gamma / v_0 = Gamma / (panel_length * v_0)``.
+
         Args:
             result: Result returned by ``Solver.solve()``.
             num_snapshots: Number of time-step snapshots to plot.
+            normalised: Plot normalised circulation density if true.
+            v_0: Gust upwash strength. Required when ``normalised`` is true.
+            airfoil: Airfoil used by the solver. Required when ``normalised`` is
+                true so that chord and panel lengths are available.
+            alpha: Clockwise angle of attack in degrees used by the solver. It is
+                used to recover pre-rotation chordwise vortex positions.
 
         Raises:
-            ValueError: If ``num_snapshots`` is not positive or exceeds the
-                number of solved time steps.
+            ValueError: If ``num_snapshots`` is invalid, or normalisation is
+                requested without a valid ``v_0`` and ``airfoil``.
         """
-        x_history, gamma_history = Plotter._prepare_combined_gamma_history(result)
+        x_history, z_history, gamma_history = Plotter._prepare_combined_gamma_history(
+            result
+        )
+
+        if normalised:
+            if airfoil is None:
+                raise ValueError("airfoil must be supplied when normalised=True")
+            if v_0 is None:
+                raise ValueError("v_0 must be supplied when normalised=True")
+
+            x_history, gamma_history = Plotter._normalise_gamma_history(
+                result,
+                x_history,
+                z_history,
+                gamma_history,
+                airfoil,
+                v_0,
+                alpha,
+            )
+
         num_time_steps = gamma_history.shape[0]
         num_bound_vortices = len(result.bound_gamma_history[0])
 
@@ -259,9 +446,18 @@ class Plotter:
                     linewidth=1.4,
                 )
 
-        ax.set_xlabel("x position")
-        ax.set_ylabel("Circulation, Gamma")
-        ax.set_title("Bound and Wake Circulation at Selected Time Steps")
+        if normalised:
+            ax.set_xlabel(r"Normalised chordwise position, $x_{chord}/c$")
+            ax.set_ylabel(r"Normalised circulation density, $\gamma/v_0$")
+            ax.set_title(
+                "Normalised Bound and Wake Circulation Density "
+                "at Selected Time Steps"
+            )
+        else:
+            ax.set_xlabel("x position")
+            ax.set_ylabel(r"Circulation, $\Gamma$")
+            ax.set_title("Bound and Wake Circulation at Selected Time Steps")
+
         ax.grid(True)
 
         timestep_legend = ax.legend(
@@ -735,7 +931,9 @@ class Plotter:
         plt.show()
 
     @staticmethod
-    def plot_points(points: np.ndarray, debug: bool = False):
+    def plot_points(
+        points: np.ndarray, debug: bool = False, airfoil: Optional[Airfoil] = None
+    ):
         """A more general method than `plot_camberline()`, this method simply plots
         a series of points which are passed in. Useful for visualising rotational transformations.
 
@@ -751,11 +949,16 @@ class Plotter:
             print(y)
             print(points)
 
+        if airfoil:
+            title = airfoil.get_name()
+        else:
+            title = "Point plot"
+
         plt.figure()
         plt.plot(x, y, marker="o")
         plt.xlabel("x")
         plt.ylabel("y")
-        plt.title("Point plot")
+        plt.title(title)
         plt.axis("equal")
         plt.grid(True)
         plt.show()

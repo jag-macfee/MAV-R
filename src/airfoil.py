@@ -365,4 +365,4 @@ class KarmanTrefftzAirfoil(Airfoil):
         return self.camber_points
 
     def get_name(self):
-        return f"Von Karman-Trefftz Airfoil with chord {self.c} and TE thickness {self.params["delta_te_deg"]} deg"
+        return f"Karman-Trefftz Airfoil with chord {self.c} and TE thickness {self.params["delta_te_deg"]:.3f} deg. Origin at ({self.params["epsilon"]} + {self.params["eta"]}i) x sigma"
