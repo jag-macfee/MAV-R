@@ -364,5 +364,9 @@ class KarmanTrefftzAirfoil(Airfoil):
         self.camber_points = np.column_stack((camber.real, camber.imag))
         return self.camber_points
 
-    def get_name(self):
-        return f"Karman-Trefftz Airfoil with chord {self.c} and TE thickness {self.params["delta_te_deg"]:.3f} deg. Origin at ({self.params["epsilon"]} + {self.params["eta"]}i) x sigma"
+    def get_name(self) -> str:
+        return (
+            f"Karman-Trefftz airfoil, c={self.c:g} m, "
+            f"TE angle={self.params['delta_te_deg']:.3f} deg, "
+            f"centre=(-{self.params['epsilon']:g} + {self.params['eta']:g}i) sigma"
+        )

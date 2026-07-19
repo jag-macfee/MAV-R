@@ -20,6 +20,8 @@ class Panel:
         self.vector = self.p2 - self.p1
         length = np.linalg.norm(self.vector)
 
+        self.length = length
+
         if np.isclose(length, 0.0):
             raise ValueError("A panel cannot have zero length")
 
@@ -32,6 +34,11 @@ class Panel:
         # Quarter-panel vortex and three-quarter-panel control point.
         self.vortex_position = self.p1 + 0.25 * self.vector
         self.control_point_position = self.p1 + 0.75 * self.vector
+
+        # Angle the panel makes with the positive x-axis
+        # Positive angles are counterclockwise
+        self.alpha_rad = float(np.arctan2(self.vector[1], self.vector[0]))
+        self.alpha_deg = np.rad2deg(self.alpha_rad)
 
 
 @dataclass(slots=True, eq=False)

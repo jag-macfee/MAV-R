@@ -6,6 +6,8 @@ from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, Slider
 
 from src.airfoil import Airfoil
+from src.solver import Solver
+from src.util import ResultUtils
 
 if TYPE_CHECKING:
     from src.solver import SolveResult
@@ -886,22 +888,455 @@ class Plotter:
         plt.show()
 
     @staticmethod
-    def plot_lift_history(lift_history: List[float]):
-        """
-        Plots lift as a function of time.
+    def _plot_lift_series(
+        lift_history: List[float],
+        solver: "Solver",
+        title: str,
+        ylabel: str,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot a lift history against normalised convective time."""
+        lift = np.asarray(lift_history, dtype=float)
 
-        :param lift_history: Lift evaluated at each time step
-        """
-        pass
+        if lift.ndim != 1 or lift.size == 0:
+            raise ValueError("lift history must be a non-empty one-dimensional array")
+
+        # k = 1 corresponds to t = 0 in the solver/report convention.
+        time = float(solver.delta_t) * np.arange(lift.size, dtype=float)
+        normalised_time = time * float(solver.Q_inf[0]) / float(solver.airfoil.c)
+
+        fig, ax = plt.subplots()
+        ax.plot(normalised_time, lift, linewidth=1.5)
+        ax.axhline(0.0, linewidth=0.8, linestyle="--", alpha=0.6)
+
+        ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
 
     @staticmethod
-    def plot_lift_frequency_spectrum(lift_history: List[float]):
-        """
-        Performs a frequency-domain visualisation of the lift history (e.g. FFT).
+    def plot_lift_history(
+        result: "SolveResult",
+        solver: "Solver",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot total lift against normalised convective time."""
+        if result.lift_history is None:
+            raise ValueError("SolveResult does not contain a total lift history")
 
-        :param lift_history: Lift evaluated at each time step
+        return Plotter._plot_lift_series(
+            result.lift_history,
+            solver,
+            title="Unsteady Total Lift History",
+            ylabel=r"Total lift per unit span, $L$ [N/m]",
+        )
+
+    @staticmethod
+    def plot_precalculated_lift_history(
+        history: List[float], solver: "Solver"
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot total lift against normalised convective time."""
+        return Plotter._plot_lift_series(
+            history,
+            solver,
+            title="Unsteady Total Lift History",
+            ylabel=r"Total lift per unit span, $L$ [N/m]",
+        )
+
+    @staticmethod
+    def plot_circulatory_lift_history(
+        result: "SolveResult",
+        solver: "Solver",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot circulatory lift against normalised convective time."""
+        if result.circulatory_lift_history is None:
+            raise ValueError("SolveResult does not contain a circulatory lift history")
+
+        return Plotter._plot_lift_series(
+            result.circulatory_lift_history,
+            solver,
+            title="Circulatory Lift History",
+            ylabel=r"Circulatory lift per unit span, $L_{circ}$ [N/m]",
+        )
+
+    @staticmethod
+    def plot_noncirculatory_lift_history(
+        result: "SolveResult",
+        solver: "Solver",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot non-circulatory lift against normalised convective time."""
+        if result.non_circulatory_lift_history is None:
+            raise ValueError(
+                "SolveResult does not contain a non-circulatory lift history"
+            )
+
+        return Plotter._plot_lift_series(
+            result.non_circulatory_lift_history,
+            solver,
+            title="Non-Circulatory Lift History",
+            ylabel=r"Non-circulatory lift per unit span, $L_{noncirc}$ [N/m]",
+        )
+
+    @staticmethod
+    def plot_lift_against_wagner(
+        result: "SolveResult",
+        solver: "Solver",
+        v_0: float,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        r"""Compare normalised circulatory lift against Jones' Wagner approximation.
+
+        Numerical lift is normalised by the thin-airfoil steady-state value
+
+            L_steady = pi * rho * c * U_inf * v_0
+
+        and time is normalised as
+
+            t_star = t * U_inf / c.
+
+        Args:
+            result:
+                Result returned by ``solver.solve()``.
+            solver:
+                Solver instance used to generate ``result``.
+            v_0:
+                Imposed uniform upwash magnitude.
+
+        Returns:
+            Matplotlib figure and axes.
         """
-        pass
+        lift = np.asarray(
+            result.lift_history,
+            dtype=float,
+        )
+
+        U_inf = float(solver.Q_inf[0])
+        chord = float(solver.airfoil.c)
+        rho = float(solver.rho)
+        delta_t = float(solver.delta_t)
+
+        # k = 1 corresponds to t = 0.
+        time = delta_t * np.arange(lift.size, dtype=float)
+        normalised_time = time * U_inf / chord
+
+        steady_lift = np.pi * rho * chord * U_inf * v_0
+        normalised_lift = lift / steady_lift
+
+        # Jones uses s = 2 U_inf t / c = 2 t_star.
+        dense_time = np.linspace(
+            normalised_time[0],
+            normalised_time[-1],
+            1000,
+        )
+        wagner_jones = (
+            1.0
+            - 0.165 * np.exp(-0.091 * dense_time)
+            - 0.335 * np.exp(-0.600 * dense_time)
+        )
+
+        fig, ax = plt.subplots()
+
+        ax.plot(
+            normalised_time,
+            normalised_lift,
+            label="Panel-method solution",
+            linewidth=1.5,
+        )
+        ax.plot(
+            dense_time,
+            wagner_jones,
+            label="Jones' Wagner approximation",
+            linestyle="--",
+            linewidth=1.5,
+        )
+
+        ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
+        ax.set_ylabel(
+            r"Normalised circulatory lift, "
+            r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
+        )
+        ax.set_ylim(top=1.0)
+        ax.set_title("Circulatory Lift Compared with Wagner's Function")
+        ax.grid(True)
+        ax.legend()
+
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
+
+    @staticmethod
+    def plot_lift_against_kussner(
+        result: "SolveResult",
+        solver: "Solver",
+        v_0: float,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        r"""Compare a sharp-edged step-gust response with Küssner's function.
+
+        The numerical circulatory lift is normalised by
+
+        ``L_steady = pi * rho * c * U_inf * v_0``
+
+        and time is plotted as ``t_star = t * U_inf / c``. Kier's reduced time
+        is ``tau = 2 * U_inf * t / c = 2 * t_star``, and the approximation used is
+
+        ``Psi(tau) = 1 - 0.5 exp(-0.13 tau) - 0.5 exp(-tau)``.
+
+        The supplied simulation should use a sharp-edged gust such as
+        ``W(t) = v_0`` for ``t >= 0`` and zero otherwise. For direct comparison
+        with classical Küssner theory, use a flat plate at zero angle of attack.
+        """
+        if result.lift_history is None:
+            raise ValueError("SolveResult does not contain a circulatory lift history")
+
+        lift = np.asarray(
+            result.lift_history,
+            dtype=float,
+        )
+        if lift.ndim != 1 or lift.size == 0:
+            raise ValueError(
+                "result.lift_history must be a non-empty " "one-dimensional array"
+            )
+
+        delta_t = float(solver.delta_t)
+        U_inf = float(solver.Q_inf[0])
+        chord = float(solver.airfoil.c)
+        rho = float(solver.rho)
+        v_0 = float(v_0)
+
+        steady_lift = np.pi * rho * chord * U_inf * v_0
+        if not np.isfinite(steady_lift) or np.isclose(steady_lift, 0.0):
+            raise ValueError("pi * rho * c * U_inf * v_0 must be finite and non-zero")
+
+        # k = 1 corresponds to t = 0 in the solver/report convention.
+        time = delta_t * np.arange(lift.size, dtype=float)
+        normalised_time = time * U_inf / chord
+        normalised_lift = lift / steady_lift
+
+        comparison_time = np.linspace(
+            normalised_time[0],
+            normalised_time[-1],
+            1000,
+        )
+
+        # Kier (2005) uses tau = 2 U_inf t / c.
+        tau = 2.0 * comparison_time
+        kussner = 1.0 - 0.5 * np.exp(-0.13 * tau) - 0.5 * np.exp(-1.0 * tau)
+
+        fig, ax = plt.subplots()
+        ax.plot(
+            normalised_time,
+            normalised_lift,
+            linewidth=1.5,
+            label="Panel-method step-gust response",
+        )
+        ax.plot(
+            comparison_time,
+            kussner,
+            linestyle="--",
+            linewidth=1.5,
+            label="Kier's Küssner approximation",
+        )
+
+        ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
+        ax.set_ylabel(
+            r"Normalised circulatory lift, "
+            r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
+        )
+        ax.set_title("Step-Gust Circulatory Lift Compared with Küssner's Function")
+        ax.set_ylim(top=1.0)
+        ax.grid(True)
+        ax.legend()
+
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
+
+    @staticmethod
+    def plot_lift_frequency_spectrum(
+        result: "SolveResult",
+        solver: "Solver",
+        v_0: float,
+        apply_lysak_accuracy_limit: bool = True,
+        x_limits: Tuple[float, float] = (1.0e-2, 1.0e2),
+        y_limits: Tuple[float, float] = (1.0e-4, 1.0e1),
+        show: bool = True,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        r"""Plot the impulse-derived lift response against the Sears approximation.
+
+        The extraction itself is delegated to
+        :meth:`ResultUtils.extract_lift_frequency_response`. Both axes are
+        logarithmic. The horizontal coordinate is ``f*c/U_inf`` and the
+        vertical coordinate is the paper-equivalent form
+
+        ``|DFT[L_k]|^2 / (pi*rho*c*v_0*U_inf)^2``.
+
+        Equivalently, after dividing by the discrete impulse transform, this is
+        ``|H(f)|^2 / (pi*rho*c*U_inf)^2``.
+
+        for the existing discrete impulse ``v_0*delta(k - 1)``.
+
+        Lysak notes that an ``N``-panel discrete-vortex solution begins to lose
+        accuracy above ``f*c/U_inf = N/4`` despite its Nyquist limit of ``N/2``.
+        That recommended limit is applied by default.
+
+        Args:
+            result:
+                Result returned by ``solver.solve()`` for the impulse gust.
+            solver:
+                Solver instance used to generate ``result``.
+            v_0:
+                Amplitude multiplying the user's existing discrete impulse.
+            apply_lysak_accuracy_limit:
+                Restrict the numerical response to ``N/4`` when true.
+            x_limits:
+                Lower and upper limits for normalised frequency. Defaults to
+                ``(1e-2, 1e2)``.
+            y_limits:
+                Lower and upper limits for the normalised squared response.
+                Defaults to ``(1e-4, 1e1)``.
+            show:
+                Display the figure immediately when true.
+
+        Returns:
+            A tuple ``(fig, ax)`` containing the Matplotlib figure and axes.
+        """
+        if result.lift_history is None:
+            raise ValueError("SolveResult does not contain a total lift history")
+
+        maximum_frequency = None
+        if apply_lysak_accuracy_limit:
+            maximum_frequency = float(solver.airfoil.n_panels) / 4.0
+
+        normalised_frequency, normalised_response_squared = (
+            ResultUtils.extract_lift_frequency_response(
+                lift_history=result.lift_history,
+                delta_t=solver.delta_t,
+                U_inf=solver.Q_inf[0],
+                chord=solver.airfoil.c,
+                rho=solver.rho,
+                v_0=v_0,
+                max_normalised_frequency=maximum_frequency,
+            )
+        )
+
+        x_min, x_max = map(float, x_limits)
+        y_min, y_max = map(float, y_limits)
+
+        if x_min <= 0.0 or x_max <= x_min:
+            raise ValueError("x_limits must be positive and increasing")
+        if y_min <= 0.0 or y_max <= y_min:
+            raise ValueError("y_limits must be positive and increasing")
+
+        # Draw the analytical approximation across the complete requested
+        # plotting range, even if the numerical N/4 accuracy limit is lower.
+        sears_frequency = np.logspace(
+            np.log10(x_min),
+            np.log10(x_max),
+            500,
+        )
+        sears_response_squared = ResultUtils.sears_response_squared_approximation(
+            sears_frequency
+        )
+
+        fig, ax = plt.subplots()
+        ax.loglog(
+            normalised_frequency,
+            normalised_response_squared,
+            linestyle="none",
+            marker="o",
+            markersize=3.5,
+            label="Panel-method impulse response",
+        )
+        ax.loglog(
+            sears_frequency,
+            sears_response_squared,
+            linestyle="--",
+            linewidth=1.5,
+            label="Sears approximation",
+        )
+
+        ax.set_xlabel(r"Normalised frequency, $fc/U_\infty$")
+        ax.set_ylabel(
+            r"Normalised lift response, "
+            r"$|\mathrm{DFT}(L)|^2/(\pi\rho c v_0 U_\infty)^2$"
+        )
+        ax.set_title("Lift Frequency Response Compared with the Sears Function")
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.grid(True, which="both")
+        ax.legend()
+
+        plt.tight_layout()
+        if show:
+            plt.show()
+
+        return fig, ax
+
+    @staticmethod
+    def plot_lift_frequency_spectrum_from_calculated_response(
+        normalised_frequency,
+        normalised_response_squared,
+        x_limits: Tuple[float, float] = (1.0e-2, 1.0e2),
+        y_limits: Tuple[float, float] = (1.0e-4, 1.0e1),
+        show: bool = True,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        r"""Plot the impulse-derived lift response against the Sears approximation, but this time with given axes values"""
+        x_min, x_max = map(float, x_limits)
+        y_min, y_max = map(float, y_limits)
+
+        if x_min <= 0.0 or x_max <= x_min:
+            raise ValueError("x_limits must be positive and increasing")
+        if y_min <= 0.0 or y_max <= y_min:
+            raise ValueError("y_limits must be positive and increasing")
+
+        # Draw the analytical approximation across the complete requested
+        # plotting range, even if the numerical N/4 accuracy limit is lower.
+        sears_frequency = np.logspace(
+            np.log10(x_min),
+            np.log10(x_max),
+            500,
+        )
+        sears_response_squared = ResultUtils.sears_response_squared_approximation(
+            sears_frequency
+        )
+
+        fig, ax = plt.subplots()
+        ax.loglog(
+            normalised_frequency,
+            normalised_response_squared,
+            linestyle="none",
+            marker="o",
+            markersize=3.5,
+            label="Panel-method impulse response",
+        )
+        ax.loglog(
+            sears_frequency,
+            sears_response_squared,
+            linestyle="--",
+            linewidth=1.5,
+            label="Sears approximation",
+        )
+
+        ax.set_xlabel(r"Normalised frequency, $fc/U_\infty$")
+        ax.set_ylabel(
+            r"Normalised lift response, "
+            r"$|\mathrm{DFT}(L)|^2/(\pi\rho c v_0 U_\infty)^2$"
+        )
+        ax.set_title("Lift Frequency Response Compared with the Sears Function")
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.grid(True, which="both")
+        ax.legend()
+
+        plt.tight_layout()
+        if show:
+            plt.show()
+
+        return fig, ax
 
     @staticmethod
     def plot_camberline(airfoil: Airfoil, debug: bool = False):

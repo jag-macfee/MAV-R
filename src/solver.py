@@ -17,17 +17,23 @@ class SolveResult:
         bound_gamma_history: List[List[PointValue]],
         wake_gamma_history: List[List[PointValue]],
         lift_history: Optional[List[float]] = None,
+        circulatory_lift_history: Optional[List[float]] = None,
+        non_circulatory_lift_history: Optional[List[float]] = None,
     ):
         """
         :param bound_gamma_history: List of k rows containing bound vortex distribution over time.
                                     Each row is a vector of gamma values associated with points.
         :param wake_gamma_history: List of k rows containing wake vortex distribution over time.
-                                   Each row is a vector of gamma values associated with points.
-        :param lift_history: List of lift evaluations across time steps.
+                                Each row is a vector of gamma values associated with points.
+        :param lift_history: Total lift evaluated across time steps.
+        :param circulatory_lift_history: Circulatory lift across time steps.
+        :param non_circulatory_lift_history: Non-circulatory lift across time steps.
         """
         self.bound_gamma_history = bound_gamma_history
         self.wake_gamma_history = wake_gamma_history
         self.lift_history = lift_history
+        self.circulatory_lift_history = circulatory_lift_history
+        self.non_circulatory_lift_history = non_circulatory_lift_history
 
 
 class Solver:
@@ -42,6 +48,7 @@ class Solver:
         num_time_steps: int,
         Q_inf: Tuple[float, Callable[[float], float]],
         alpha: float,
+        rho: float = 1.225,
     ):
         """
         :param airfoil: The airfoil being simulated.
@@ -49,12 +56,14 @@ class Solver:
         :param num_time_steps: Number of time steps to solve over.
         :param Q_inf: A 2D vector containing [U_inf (scalar), W(t)], defining time-variable vertical gust with a constant freestream
         :param alpha: the angle-of-attack (deg) to be used in this simulation (note: AoA is constant)
+        :param rho: Density of fluid (defaults to air, 1.225 kg/m^3)
         """
         self.airfoil = airfoil
         self.strategy = strategy
         self.num_time_steps = num_time_steps
         self.Q_inf = Q_inf
         self.alpha = alpha
+        self.rho = rho
 
         self.delta_t = np.nan
         self.airfoil_panels: List[Panel] = []
@@ -62,7 +71,10 @@ class Solver:
         self.bound_gamma_history: List[List[PointValue]] = []
         self.bound_gamma_sum_history: List[float] = []
         self.wake_gamma_history: List[List[PointValue]] = []
-        self.lift_history: List[float] = []
+
+        self.circulatory_lift_history: list[float] = []
+        self.non_circulatory_lift_history: list[float] = []
+        self.lift_history: list[float] = []
 
     def solve(self) -> SolveResult:
         """
@@ -90,20 +102,25 @@ class Solver:
         # Main loop
         for k in range(1, self.num_time_steps + 1):
             current_wake = self.solve_singular_timestep(k, Amat, current_wake)
+            _ = self.update_lift_history(k)
 
         return SolveResult(
             bound_gamma_history=self.bound_gamma_history,
             wake_gamma_history=self.wake_gamma_history,
             lift_history=self.lift_history,
+            circulatory_lift_history=self.circulatory_lift_history,
+            non_circulatory_lift_history=self.non_circulatory_lift_history,
         )
 
-    # Helper functions for Solver class
-    def clear(self):
-        """Clears the histories for fresh use"""
-        self.bound_gamma_history = []
-        self.bound_gamma_sum_history = []
-        self.wake_gamma_history = []
-        self.lift_history = []
+    # Helper functions
+    def clear(self) -> None:
+        self.bound_gamma_history.clear()
+        self.bound_gamma_sum_history.clear()
+        self.wake_gamma_history.clear()
+
+        self.circulatory_lift_history.clear()
+        self.non_circulatory_lift_history.clear()
+        self.lift_history.clear()
 
     def preprocess_panels(self) -> List[Panel]:
         """
@@ -137,7 +154,7 @@ class Solver:
         U_inf = self.Q_inf[0]
         if U_inf <= 0:
             raise ValueError(
-                "Supplied Q_inf U(t) component evaluates to 0 at t=0. Please specify a horizantal freestream function which stays strictly positive over the time domain."
+                "Supplied Q_inf U component evaluates to <= 0. Please specify a horizantal freestream value which is strictly positive."
             )
 
         self.delta_t = self.airfoil.delta_x / U_inf
@@ -216,3 +233,76 @@ class Solver:
         return SolverUtils.develop_wake(
             self.Q_inf, wake_sol_k, bound_gamma_points_sol, self.delta_t, k
         )
+
+    def update_lift_history(self, k: int) -> float:
+        """Calculate circulatory, non-circulatory, and total lift."""
+
+        current_values = np.asarray(
+            [item.value for item in self.bound_gamma_history[k - 1]],
+            dtype=float,
+        )
+        current_cumulative = np.cumsum(current_values)
+
+        if k == 1:
+            previous_cumulative = np.zeros_like(current_cumulative)
+        else:
+            previous_values = np.asarray(
+                [item.value for item in self.bound_gamma_history[k - 2]],
+                dtype=float,
+            )
+            previous_cumulative = np.cumsum(previous_values)
+
+        cumulative_time_derivative = (
+            current_cumulative - previous_cumulative
+        ) / self.delta_t
+
+        t = self.delta_t * (k - 1)
+
+        # Exclude the newest wake vortex because it is part of the LHS solve.
+        old_wake = self.wake_gamma_history[k - 1][1:]
+
+        num_panels = len(self.airfoil_panels)
+
+        circulatory_pressure_jumps = np.empty(num_panels, dtype=float)
+
+        # This part does not require Q_j and can be evaluated directly.
+        non_circulatory_pressure_jumps = self.rho * cumulative_time_derivative
+
+        for j, panel in enumerate(self.airfoil_panels):
+            Q_j = SolverUtils.calculate_Q_i(
+                self.Q_inf,
+                old_wake,
+                panel,
+                t,
+            )
+
+            circulatory_pressure_jumps[j] = (
+                self.rho
+                * float(np.dot(Q_j, panel.tangent))
+                * current_values[j]
+                / panel.length
+            )
+
+        panel_lengths = np.asarray(
+            [panel.length for panel in self.airfoil_panels],
+            dtype=float,
+        )
+        vertical_projection = np.asarray(
+            [np.cos(panel.alpha_rad) for panel in self.airfoil_panels],
+            dtype=float,
+        )
+
+        force_weights = panel_lengths * vertical_projection
+
+        circulatory_lift = float(np.sum(circulatory_pressure_jumps * force_weights))
+        non_circulatory_lift = float(
+            np.sum(non_circulatory_pressure_jumps * force_weights)
+        )
+
+        total_lift = circulatory_lift + non_circulatory_lift
+
+        self.circulatory_lift_history.append(circulatory_lift)
+        self.non_circulatory_lift_history.append(non_circulatory_lift)
+        self.lift_history.append(total_lift)
+
+        return total_lift

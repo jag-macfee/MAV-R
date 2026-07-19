@@ -1,4 +1,4 @@
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -185,6 +185,58 @@ class SolverUtils:
         return coeff_matrix
 
     @classmethod
+    def calculate_Q_i(
+        cls,
+        Q_inf: Tuple[float, Callable[[float], float]],
+        wake_vortices: List[PointValue],
+        panel: Panel,
+        t: float,
+    ) -> np.ndarray:
+        """Calculates Q_i, the total field contribution on a given panel's control point.
+        This includes velocity contribution from the freestream, and gust, as well as wake vortex induced velocity.
+
+        Args:
+            Q_inf (Tuple[float, Callable[[float], float]]): Freestream vector
+            wake_vortices (List[PointValue]): Wake vortices relevant for calculation
+            panel (Panel): The panel to be calculated at
+            t (float): time since first time step
+
+        Returns:
+            np.ndarray: The field contribution to velocity at the specified panel's control point
+        """
+        U_inf = Q_inf[0]
+        Wfunc = Q_inf[1]
+
+        control_point = panel.control_point_position
+        control_point_x = control_point[0]
+
+        # The horizontal freestream U_inf is constant for a given time step
+        # across the whole field domain.
+        # However, the vertical gust propagates down the airfoil, and the encountered
+        # local gust can be evaluated using W(t - t_n), where t_n is the time it takes
+        # to reach control point n
+        # Justification for this formula is included in theory
+        t_n = control_point_x / U_inf
+        non_induced_velocity = np.array([U_inf, Wfunc(t - t_n)])
+
+        # Calculate wake vortex contribution
+        wake_vortex_contribution = np.zeros((2,), dtype=float)
+        for wake_vortex in wake_vortices:
+            gamma = wake_vortex.value
+            vortex_pos = wake_vortex.point
+
+            wake_vortex_contribution = np.add(
+                wake_vortex_contribution,
+                cls.vel_induced_by_vortex(control_point, vortex_pos, gamma),
+            )
+
+        # This is Q_i
+        total_field_contribution = np.add(
+            non_induced_velocity, wake_vortex_contribution
+        )
+        return total_field_contribution
+
+    @classmethod
     def construct_RHS_vector(
         cls,
         Q_inf: Tuple[float, Callable[[float], float]],
@@ -217,40 +269,11 @@ class SolverUtils:
             dtype=float,
         )
 
-        # time varying freestream functions, U(t) and W(t)
-        # Take the time resolution
-        U_inf = Q_inf[0]
-        Wfunc = Q_inf[1]
+        # Time passed since first step
         t = delta_t * (k - 1)
 
         for i, panel in enumerate(panels):
-            control_point = panel.control_point_position
-            control_point_x = control_point[0]
-
-            # The horizontal freestream U_inf(t) is constant for a given time step
-            # across the whole field domain.
-            # However, the vertical gust propagates down the airfoil, and the encountered
-            # local gust can be evaluated using W(t - t_n), where t_n is the time it takes
-            # to reach control point n
-            # Justification for this formula is included in theory
-            t_n = control_point_x / U_inf
-            non_induced_velocity = np.array([U_inf, Wfunc(t - t_n)])
-
-            # Calculate wake vortex contribution
-            wake_vortex_contribution = np.zeros((2,), dtype=float)
-            for wake_vortex in wake_vortices:
-                gamma = wake_vortex.value
-                vortex_pos = wake_vortex.point
-
-                wake_vortex_contribution = np.add(
-                    wake_vortex_contribution,
-                    cls.vel_induced_by_vortex(control_point, vortex_pos, gamma),
-                )
-
-            # This is Q_i
-            total_field_contribution = np.add(
-                non_induced_velocity, wake_vortex_contribution
-            )
+            total_field_contribution = cls.calculate_Q_i(Q_inf, wake_vortices, panel, t)
 
             rhs_vector[i] = -np.dot(total_field_contribution, panel.normal)
 
@@ -355,3 +378,171 @@ class SolverUtils:
             )
 
         return new_wake
+
+
+class ResultUtils:
+    """Utilities for post-processing a completed solver result."""
+
+    @classmethod
+    def extract_lift_frequency_response(
+        cls,
+        lift_history: Sequence[float],
+        delta_t: float,
+        U_inf: float,
+        chord: float,
+        rho: float,
+        v_0: float,
+        max_normalised_frequency: Optional[float] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        r"""Extract the Lysak-normalised lift frequency response.
+
+        The supplied lift history must come from the existing discrete impulse
+        gust calculation. No modification is made to the impulse definition.
+
+        Following Lysak's Eqs. (2.51)--(2.52), the discrete Fourier transform is
+
+        ``L_hat(f) = (delta_t / (2*pi)) * DFT[L_k]``.
+
+        For an input gust ``v_0 * delta(k - 1)``, its transform is
+        ``v_0 * delta_t / (2*pi)``. Dividing the output transform by the input
+        transform therefore gives the lift/gust transfer function. The returned
+        ordinate is the paper's dimensionless squared magnitude,
+
+        ``|H(f)|^2 / (pi * rho * c * U_inf)^2``.
+
+        This is algebraically equivalent to
+
+        ``|DFT[L_k]|^2 / (pi * rho * c * v_0 * U_inf)^2``.
+
+        The frequency coordinate is normalised as ``f*c/U_inf``. The zero-
+        frequency term is omitted because the intended plot uses logarithmic
+        axes.
+
+        Args:
+            lift_history:
+                Total lift per unit span at each solver time step.
+            delta_t:
+                Solver time-step length in seconds.
+            U_inf:
+                Positive horizontal freestream velocity.
+            chord:
+                Positive airfoil chord length.
+            rho:
+                Positive fluid density.
+            v_0:
+                Non-zero amplitude multiplying the existing discrete impulse.
+            max_normalised_frequency:
+                Optional upper limit on ``f*c/U_inf``. Lysak recommends
+                ``N/4`` for an ``N``-panel model, even though the Nyquist limit
+                is ``N/2``.
+
+        Returns:
+            ``(normalised_frequency, normalised_response_squared)``.
+
+        Raises:
+            ValueError:
+                If the lift history or physical/scaling values are invalid, or
+                if no positive finite frequencies remain after filtering.
+        """
+        lift = np.asarray(lift_history, dtype=float)
+
+        if lift.ndim != 1:
+            raise ValueError("lift_history must be a one-dimensional sequence")
+        if lift.size < 2:
+            raise ValueError("lift_history must contain at least two samples")
+        if np.any(~np.isfinite(lift)):
+            raise ValueError("lift_history must contain only finite values")
+
+        delta_t = float(delta_t)
+        U_inf = float(U_inf)
+        chord = float(chord)
+        rho = float(rho)
+        v_0 = float(v_0)
+
+        if not np.isfinite(delta_t) or delta_t <= 0.0:
+            raise ValueError("delta_t must be finite and strictly positive")
+        if not np.isfinite(U_inf) or U_inf <= 0.0:
+            raise ValueError("U_inf must be finite and strictly positive")
+        if not np.isfinite(chord) or chord <= 0.0:
+            raise ValueError("chord must be finite and strictly positive")
+        if not np.isfinite(rho) or rho <= 0.0:
+            raise ValueError("rho must be finite and strictly positive")
+        if not np.isfinite(v_0) or np.isclose(v_0, 0.0):
+            raise ValueError("v_0 must be finite and non-zero")
+
+        if max_normalised_frequency is not None:
+            max_normalised_frequency = float(max_normalised_frequency)
+            if (
+                not np.isfinite(max_normalised_frequency)
+                or max_normalised_frequency <= 0.0
+            ):
+                raise ValueError("max_normalised_frequency must be finite and positive")
+
+        # Lysak Eq. (2.51): Fourier transform of the lift output.
+        transform_scale = delta_t / (2.0 * np.pi)
+        lift_transform = transform_scale * np.fft.rfft(lift)
+
+        gust_transform = v_0 * transform_scale
+        frequency_response = lift_transform / gust_transform
+
+        frequency_hz = np.fft.rfftfreq(lift.size, d=delta_t)
+        normalised_frequency = frequency_hz * chord / U_inf
+
+        reference_response = np.pi * rho * chord * U_inf
+        normalised_response_squared = (
+            np.abs(frequency_response) ** 2 / reference_response**2
+        )
+
+        valid = (
+            (normalised_frequency > 0.0)
+            & np.isfinite(normalised_frequency)
+            & np.isfinite(normalised_response_squared)
+            & (normalised_response_squared > 0.0)
+        )
+
+        if max_normalised_frequency is not None:
+            valid &= normalised_frequency <= max_normalised_frequency
+
+        normalised_frequency = normalised_frequency[valid]
+        normalised_response_squared = normalised_response_squared[valid]
+
+        if normalised_frequency.size == 0:
+            raise ValueError(
+                "no positive finite frequency-response values remain after filtering"
+            )
+
+        return normalised_frequency, normalised_response_squared
+
+    @classmethod
+    def sears_response_squared_approximation(
+        cls,
+        normalised_frequency: Sequence[float],
+        m: float = 1.3,
+    ) -> np.ndarray:
+        r"""Evaluate Lysak's approximation to the squared Sears magnitude.
+
+        Args:
+            normalised_frequency:
+                Values of ``f*c/U_inf``.
+            m:
+                Approximation exponent. Lysak uses ``m = 1.3``.
+
+        Returns:
+            An array containing ``|S(pi*f*c/U_inf)|^2``.
+        """
+        frequency = np.asarray(normalised_frequency, dtype=float)
+        m = float(m)
+
+        if frequency.ndim != 1:
+            raise ValueError("normalised_frequency must be a one-dimensional sequence")
+        if frequency.size == 0:
+            raise ValueError("normalised_frequency must contain at least one value")
+        if np.any(~np.isfinite(frequency)) or np.any(frequency < 0.0):
+            raise ValueError(
+                "normalised_frequency must contain finite non-negative values"
+            )
+        if not np.isfinite(m) or m <= 0.0:
+            raise ValueError("m must be finite and strictly positive")
+
+        sears_argument = np.pi * frequency
+        return (1.0 / (1.0 + (2.0 * np.pi * sears_argument) ** m)) ** (1.0 / m)
