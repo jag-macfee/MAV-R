@@ -1054,11 +1054,10 @@ class Plotter:
 
         ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
         ax.set_ylabel(
-            r"Normalised circulatory lift, "
-            r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
+            r"Normalised lift, " r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
         )
         ax.set_ylim(top=1.0)
-        ax.set_title("Circulatory Lift Compared with Wagner's Function")
+        ax.set_title("Lift Compared with Wagner's Function")
         ax.grid(True)
         ax.legend()
 
@@ -1075,7 +1074,7 @@ class Plotter:
     ) -> Tuple[plt.Figure, plt.Axes]:
         r"""Compare a sharp-edged step-gust response with Küssner's function.
 
-        The numerical circulatory lift is normalised by
+        The numerical lift is normalised by
 
         ``L_steady = pi * rho * c * U_inf * v_0``
 
@@ -1089,7 +1088,7 @@ class Plotter:
         with classical Küssner theory, use a flat plate at zero angle of attack.
         """
         if result.lift_history is None:
-            raise ValueError("SolveResult does not contain a circulatory lift history")
+            raise ValueError("SolveResult does not contain a lift history")
 
         lift = np.asarray(
             result.lift_history,
@@ -1142,10 +1141,9 @@ class Plotter:
 
         ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
         ax.set_ylabel(
-            r"Normalised circulatory lift, "
-            r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
+            r"Normalised lift, " r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
         )
-        ax.set_title("Step-Gust Circulatory Lift Compared with Küssner's Function")
+        ax.set_title("Step-Gust Lift Compared with Küssner's Function")
         ax.set_ylim(top=1.0)
         ax.grid(True)
         ax.legend()
