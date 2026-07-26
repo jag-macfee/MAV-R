@@ -1,5 +1,6 @@
 from typing import List, Optional, Callable, Tuple
 import numpy as np
+from time import perf_counter
 
 from src.airfoil import Airfoil
 from src.vortex_strategy import VortexLumpingStrategy
@@ -19,6 +20,7 @@ class SolveResult:
         lift_history: Optional[List[float]] = None,
         circulatory_lift_history: Optional[List[float]] = None,
         non_circulatory_lift_history: Optional[List[float]] = None,
+        time_taken: Optional[float] = None,
     ):
         """
         :param bound_gamma_history: List of k rows containing bound vortex distribution over time.
@@ -34,6 +36,7 @@ class SolveResult:
         self.lift_history = lift_history
         self.circulatory_lift_history = circulatory_lift_history
         self.non_circulatory_lift_history = non_circulatory_lift_history
+        self.time_taken = time_taken
 
 
 class Solver:
@@ -76,6 +79,8 @@ class Solver:
         self.non_circulatory_lift_history: list[float] = []
         self.lift_history: list[float] = []
 
+        self.time_taken: Optional[float] = None
+
     def solve(self) -> SolveResult:
         """
         Solves the configured scenario.
@@ -83,6 +88,9 @@ class Solver:
         :param get_lift_history: Whether to compute lift history alongside circulation.
         :return: SolveResult containing the computed histories.
         """
+        start_time = perf_counter()
+        self.time_taken = None
+
         self.clear()
         panels = self.preprocess_panels()  # panels are post-rotation
         _ = self.preprocess_Qinf()
@@ -103,14 +111,27 @@ class Solver:
         for k in range(1, self.num_time_steps + 1):
             current_wake = self.solve_singular_timestep(k, Amat, current_wake)
             _ = self.update_lift_history(k)
+            current_wake = self.apply_wake_lumping_strategy(current_wake)
 
-        return SolveResult(
+        # record time
+        self.time_taken = perf_counter() - start_time
+
+        result = SolveResult(
             bound_gamma_history=self.bound_gamma_history,
             wake_gamma_history=self.wake_gamma_history,
             lift_history=self.lift_history,
             circulatory_lift_history=self.circulatory_lift_history,
             non_circulatory_lift_history=self.non_circulatory_lift_history,
+            time_taken=self.time_taken,
         )
+        return result
+
+    def time(self) -> float:
+        """Return the elapsed time of the most recent completed solve, in seconds."""
+        if self.time_taken is None:
+            raise RuntimeError("Solver has not completed a solve() invocation")
+
+        return self.time_taken
 
     # Helper functions
     def clear(self) -> None:
@@ -306,3 +327,28 @@ class Solver:
         self.lift_history.append(total_lift)
 
         return total_lift
+
+    def apply_wake_lumping_strategy(
+        self, current_wake: List[PointValue]
+    ) -> List[PointValue]:
+        """Takes in the current wake, and applies the chosen vortex lumping strategy.
+        Returns the new updated wake for use in the next time step's calculations.
+
+        Args:
+            current_wake (List[PointValue]): The current wake
+
+        Returns:
+            List[PointValue]: The updated wake. If no strategy is configured, a
+                shallow copy of the current wake is returned unchanged.
+        """
+        if self.strategy is None:
+            return list(current_wake)
+
+        if len(self.airfoil_panels) == 0:
+            raise RuntimeError(
+                "Airfoil panels must be preprocessed before wake lumping is applied"
+            )
+
+        # use post-rotated points
+        trailing_edge = self.airfoil_panels[-1].p2
+        return self.strategy.apply_lumping(trailing_edge, current_wake)
