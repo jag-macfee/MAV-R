@@ -18,7 +18,7 @@ class VortexLumpingStrategy(ABC):
         wake: List[PointValue],
     ) -> List[PointValue]:
         """
-        Apply a lumping strategy to the current wake.
+        Apply a lumping strategy to the current wake. Returns the updated (post-lumping) wake to be used for the next time step solution.
 
         Args:
             trailing_edge: Trailing-edge position in the same coordinate frame as

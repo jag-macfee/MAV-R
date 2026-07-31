@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -222,6 +223,7 @@ class Plotter:
         v_0: Optional[float] = None,
         airfoil: Optional[Airfoil] = None,
         alpha: float = 0.0,
+        title: Optional[str] = None,
     ) -> None:
         """Plot the complete bound-and-wake circulation history in 3D.
 
@@ -324,11 +326,19 @@ class Plotter:
         if normalised:
             ax.set_xlabel(r"Normalised chordwise position, $x_{chord}/c$")
             ax.set_zlabel(r"Normalised circulation density, $\gamma/v_0$")
-            ax.set_title("Normalised Bound and Wake Circulation Density over Time")
+            ax.set_title(
+                title
+                if title is not None
+                else "Normalised Bound and Wake Circulation Density over Time"
+            )
         else:
             ax.set_xlabel("x position")
             ax.set_zlabel(r"Circulation, $\Gamma$")
-            ax.set_title("Bound and Wake Circulation Distribution over Time")
+            ax.set_title(
+                title
+                if title is not None
+                else "Bound and Wake Circulation Distribution over Time"
+            )
 
         ax.set_ylabel("Time step, k")
         ax.legend()
@@ -344,6 +354,7 @@ class Plotter:
         v_0: Optional[float] = None,
         airfoil: Optional[Airfoil] = None,
         alpha: float = 0.0,
+        title: Optional[str] = None,
     ) -> None:
         """Plot evenly distributed bound-and-wake circulation snapshots.
 
@@ -452,13 +463,21 @@ class Plotter:
             ax.set_xlabel(r"Normalised chordwise position, $x_{chord}/c$")
             ax.set_ylabel(r"Normalised circulation density, $\gamma/v_0$")
             ax.set_title(
-                "Normalised Bound and Wake Circulation Density "
-                "at Selected Time Steps"
+                title
+                if title is not None
+                else (
+                    "Normalised Bound and Wake Circulation Density "
+                    "at Selected Time Steps"
+                )
             )
         else:
             ax.set_xlabel("x position")
             ax.set_ylabel(r"Circulation, $\Gamma$")
-            ax.set_title("Bound and Wake Circulation at Selected Time Steps")
+            ax.set_title(
+                title
+                if title is not None
+                else "Bound and Wake Circulation at Selected Time Steps"
+            )
 
         ax.grid(True)
 
@@ -512,6 +531,7 @@ class Plotter:
         z_limits: Optional[Tuple[float, float]] = None,
         core_radius: Optional[float] = None,
         animation_interval_ms: int = 150,
+        title: Optional[str] = None,
     ) -> None:
         """Interactively display the velocity field over the airfoil and wake.
 
@@ -856,8 +876,12 @@ class Plotter:
 
             field_description = "total" if Q_inf is not None else "vortex-induced"
             ax.set_title(
-                f"{field_description.capitalize()} flow field at "
-                f"k = {timestep_index + 1}{time_text}"
+                title
+                if title is not None
+                else (
+                    f"{field_description.capitalize()} flow field at "
+                    f"k = {timestep_index + 1}{time_text}"
+                )
             )
             fig.canvas.draw_idle()
 
@@ -888,11 +912,219 @@ class Plotter:
         plt.show()
 
     @staticmethod
+    def plot_results_against_reference_data(
+        reference_data: Sequence[Tuple[Union[str, Path], str]],
+        calculated_data: Sequence[
+            Union[
+                Line2D,
+                Tuple[Line2D, str],
+                Tuple[Sequence[float], Sequence[float]],
+                Tuple[Sequence[float], Sequence[float], str],
+            ]
+        ],
+        x_label: str,
+        y_label: str,
+        title: Optional[str] = None,
+        link_colours_by_index: bool = True,
+        show: bool = True,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plot calculated curves against reference curves stored in CSV files.
+
+        Each reference entry is ``(csv_path, label)``. The CSV file must contain
+        columns named ``x`` and ``y`` and represents one reference curve.
+
+        Each calculated entry may be one of:
+
+        - a Matplotlib ``Line2D`` object;
+        - ``(Line2D, label)``;
+        - ``(x_values, y_values)``; or
+        - ``(x_values, y_values, label)``.
+
+        Reference curves use dashed lines and calculated curves use solid lines.
+        When ``link_colours_by_index`` is true, reference curve ``i`` and
+        calculated curve ``i`` share a colour.
+
+        Args:
+            reference_data:
+                One or more ``(csv_path, label)`` tuples. Every CSV must contain
+                columns named ``x`` and ``y``.
+            calculated_data:
+                Any number of calculated curves supplied as ``Line2D`` objects
+                or x/y data tuples.
+            x_label:
+                Label for the horizontal axis.
+            y_label:
+                Label for the vertical axis.
+            title:
+                Plot title.
+            link_colours_by_index:
+                Match the colours of reference and calculated curves by their
+                positions in the two lists.
+            show:
+                Display the figure immediately when true.
+
+        Returns:
+            A tuple ``(fig, ax)`` containing the Matplotlib figure and axes.
+
+        Raises:
+            ValueError:
+                If reference or calculated curve definitions are invalid, or a
+                CSV does not contain valid ``x`` and ``y`` columns.
+            FileNotFoundError:
+                If a reference CSV file does not exist.
+        """
+        references = list(reference_data)
+        calculated_curves = list(calculated_data)
+
+        if len(references) == 0:
+            raise ValueError("at least one reference curve must be supplied")
+
+        colour_cycle = plt.rcParams["axes.prop_cycle"].by_key().get("color", [])
+        if len(colour_cycle) == 0:
+            colour_cycle = [None]
+
+        def colour_for(index: int, calculated: bool) -> Optional[str]:
+            if link_colours_by_index:
+                colour_index = index
+            elif calculated:
+                colour_index = len(references) + index
+            else:
+                colour_index = index
+
+            return colour_cycle[colour_index % len(colour_cycle)]
+
+        def validate_curve(
+            x_values,
+            y_values,
+            description: str,
+        ) -> Tuple[np.ndarray, np.ndarray]:
+            x = np.atleast_1d(np.asarray(x_values, dtype=float))
+            y = np.atleast_1d(np.asarray(y_values, dtype=float))
+
+            if x.ndim != 1 or y.ndim != 1:
+                raise ValueError(
+                    f"{description} x and y values must be one-dimensional"
+                )
+            if x.size == 0:
+                raise ValueError(f"{description} must contain at least one point")
+            if x.size != y.size:
+                raise ValueError(
+                    f"{description} x and y values must have the same length"
+                )
+            if np.any(~np.isfinite(x)) or np.any(~np.isfinite(y)):
+                raise ValueError(f"{description} must contain only finite values")
+
+            return x, y
+
+        fig, ax = plt.subplots()
+
+        for index, reference in enumerate(references):
+            if not isinstance(reference, tuple) or len(reference) != 2:
+                raise ValueError(
+                    "each reference curve must be supplied as (csv_path, label)"
+                )
+
+            path = Path(reference[0])
+            label = str(reference[1])
+
+            if not path.is_file():
+                raise FileNotFoundError(f"reference CSV file not found: {path}")
+
+            table = np.genfromtxt(
+                path,
+                delimiter=",",
+                names=True,
+                dtype=float,
+                encoding="utf-8",
+            )
+
+            column_names = table.dtype.names
+            if (
+                column_names is None
+                or "x" not in column_names
+                or "y" not in column_names
+            ):
+                raise ValueError(
+                    f"reference CSV file '{path}' must contain columns named 'x' and 'y'"
+                )
+
+            x, y = validate_curve(
+                table["x"],
+                table["y"],
+                f"reference curve '{path}'",
+            )
+
+            ax.plot(
+                x,
+                y,
+                color=colour_for(index, calculated=False),
+                linestyle="--",
+                linewidth=1.5,
+                label=label,
+            )
+
+        for index, curve in enumerate(calculated_curves):
+            if isinstance(curve, Line2D):
+                x_values = curve.get_xdata()
+                y_values = curve.get_ydata()
+                label = curve.get_label()
+                if not label or label.startswith("_"):
+                    label = f"Calculated {index + 1}"
+            elif (
+                isinstance(curve, tuple)
+                and len(curve) == 2
+                and isinstance(curve[0], Line2D)
+            ):
+                x_values = curve[0].get_xdata()
+                y_values = curve[0].get_ydata()
+                label = str(curve[1])
+            else:
+                if not isinstance(curve, tuple) or len(curve) not in (2, 3):
+                    raise ValueError(
+                        "each calculated curve must be a Line2D object, "
+                        "(Line2D, label), (x_values, y_values), or "
+                        "(x_values, y_values, label)"
+                    )
+
+                x_values = curve[0]
+                y_values = curve[1]
+                label = str(curve[2]) if len(curve) == 3 else f"Calculated {index + 1}"
+
+            x, y = validate_curve(
+                x_values,
+                y_values,
+                f"calculated curve {index + 1}",
+            )
+
+            ax.plot(
+                x,
+                y,
+                color=colour_for(index, calculated=True),
+                linestyle="-",
+                linewidth=1.5,
+                label=label,
+            )
+
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.set_title(title)
+        ax.grid(True)
+        ax.legend()
+
+        plt.tight_layout()
+        if show:
+            plt.show()
+
+        return fig, ax
+
+    @staticmethod
     def _plot_lift_series(
         lift_history: List[float],
         solver: "Solver",
         title: str,
         ylabel: str,
+        label: Optional[str] = None,
+        show: bool = True,
     ) -> Tuple[plt.Figure, plt.Axes]:
         """Plot a lift history against normalised convective time."""
         lift = np.asarray(lift_history, dtype=float)
@@ -905,16 +1137,19 @@ class Plotter:
         normalised_time = time * float(solver.Q_inf[0]) / float(solver.airfoil.c)
 
         fig, ax = plt.subplots()
-        ax.plot(normalised_time, lift, linewidth=1.5)
+        ax.plot(normalised_time, lift, linewidth=1.5, label=label)
         ax.axhline(0.0, linewidth=0.8, linestyle="--", alpha=0.6)
 
         ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.grid(True)
+        if label is not None:
+            ax.legend()
 
         plt.tight_layout()
-        plt.show()
+        if show:
+            plt.show()
 
         return fig, ax
 
@@ -922,34 +1157,66 @@ class Plotter:
     def plot_lift_history(
         result: "SolveResult",
         solver: "Solver",
+        use_coefficient: bool = False,
+        label: Optional[str] = None,
+        show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
-        """Plot total lift against normalised convective time."""
+        """Plot total lift or lift coefficient against normalised convective time."""
         if result.lift_history is None:
             raise ValueError("SolveResult does not contain a total lift history")
 
+        lift_history = result.lift_history
+        default_title = "Unsteady Total Lift History"
+        ylabel = r"Total lift per unit span, $L$ [N/m]"
+
+        if use_coefficient:
+            dynamic_pressure_chord = (
+                0.5
+                * float(solver.rho)
+                * float(solver.Q_inf[0]) ** 2
+                * float(solver.airfoil.c)
+            )
+            lift_history = (
+                np.asarray(lift_history, dtype=float) / dynamic_pressure_chord
+            )
+            default_title = "Unsteady Total Lift Coefficient History"
+            ylabel = r"Total lift coefficient, $C_L$"
+
         return Plotter._plot_lift_series(
-            result.lift_history,
+            lift_history,
             solver,
-            title="Unsteady Total Lift History",
-            ylabel=r"Total lift per unit span, $L$ [N/m]",
+            title=title if title is not None else default_title,
+            ylabel=ylabel,
+            label=label,
+            show=show,
         )
 
     @staticmethod
     def plot_precalculated_lift_history(
-        history: List[float], solver: "Solver"
+        history: List[float],
+        solver: "Solver",
+        label: Optional[str] = None,
+        show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         """Plot total lift against normalised convective time."""
         return Plotter._plot_lift_series(
             history,
             solver,
-            title="Unsteady Total Lift History",
+            title=title if title is not None else "Unsteady Total Lift History",
             ylabel=r"Total lift per unit span, $L$ [N/m]",
+            label=label,
+            show=show,
         )
 
     @staticmethod
     def plot_circulatory_lift_history(
         result: "SolveResult",
         solver: "Solver",
+        label: Optional[str] = None,
+        show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         """Plot circulatory lift against normalised convective time."""
         if result.circulatory_lift_history is None:
@@ -958,14 +1225,19 @@ class Plotter:
         return Plotter._plot_lift_series(
             result.circulatory_lift_history,
             solver,
-            title="Circulatory Lift History",
+            title=title if title is not None else "Circulatory Lift History",
             ylabel=r"Circulatory lift per unit span, $L_{circ}$ [N/m]",
+            label=label,
+            show=show,
         )
 
     @staticmethod
     def plot_noncirculatory_lift_history(
         result: "SolveResult",
         solver: "Solver",
+        label: Optional[str] = None,
+        show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         """Plot non-circulatory lift against normalised convective time."""
         if result.non_circulatory_lift_history is None:
@@ -976,8 +1248,10 @@ class Plotter:
         return Plotter._plot_lift_series(
             result.non_circulatory_lift_history,
             solver,
-            title="Non-Circulatory Lift History",
+            title=title if title is not None else "Non-Circulatory Lift History",
             ylabel=r"Non-circulatory lift per unit span, $L_{noncirc}$ [N/m]",
+            label=label,
+            show=show,
         )
 
     @staticmethod
@@ -985,6 +1259,7 @@ class Plotter:
         result: "SolveResult",
         solver: "Solver",
         v_0: float,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         r"""Compare normalised circulatory lift against Jones' Wagner approximation.
 
@@ -1057,7 +1332,9 @@ class Plotter:
             r"Normalised lift, " r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
         )
         ax.set_ylim(top=1.0)
-        ax.set_title("Lift Compared with Wagner's Function")
+        ax.set_title(
+            title if title is not None else "Lift Compared with Wagner's Function"
+        )
         ax.grid(True)
         ax.legend()
 
@@ -1071,6 +1348,7 @@ class Plotter:
         result: "SolveResult",
         solver: "Solver",
         v_0: float,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         r"""Compare a sharp-edged step-gust response with Küssner's function.
 
@@ -1143,7 +1421,11 @@ class Plotter:
         ax.set_ylabel(
             r"Normalised lift, " r"$L_{\mathrm{circ}}/(\pi\rho cU_\infty v_0)$"
         )
-        ax.set_title("Step-Gust Lift Compared with Küssner's Function")
+        ax.set_title(
+            title
+            if title is not None
+            else "Step-Gust Lift Compared with Küssner's Function"
+        )
         ax.set_ylim(top=1.0)
         ax.grid(True)
         ax.legend()
@@ -1162,6 +1444,7 @@ class Plotter:
         x_limits: Tuple[float, float] = (1.0e-2, 1.0e2),
         y_limits: Tuple[float, float] = (1.0e-4, 1.0e1),
         show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         r"""Plot the impulse-derived lift response against the Sears approximation.
 
@@ -1262,7 +1545,11 @@ class Plotter:
             r"Normalised lift response, "
             r"$|\mathrm{DFT}(L)|^2/(\pi\rho c v_0 U_\infty)^2$"
         )
-        ax.set_title("Lift Frequency Response Compared with the Sears Function")
+        ax.set_title(
+            title
+            if title is not None
+            else "Lift Frequency Response Compared with the Sears Function"
+        )
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
         ax.grid(True, which="both")
@@ -1281,6 +1568,7 @@ class Plotter:
         x_limits: Tuple[float, float] = (1.0e-2, 1.0e2),
         y_limits: Tuple[float, float] = (1.0e-4, 1.0e1),
         show: bool = True,
+        title: Optional[str] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
         r"""Plot the impulse-derived lift response against the Sears approximation, but this time with given axes values"""
         x_min, x_max = map(float, x_limits)
@@ -1324,7 +1612,11 @@ class Plotter:
             r"Normalised lift response, "
             r"$|\mathrm{DFT}(L)|^2/(\pi\rho c v_0 U_\infty)^2$"
         )
-        ax.set_title("Lift Frequency Response Compared with the Sears Function")
+        ax.set_title(
+            title
+            if title is not None
+            else "Lift Frequency Response Compared with the Sears Function"
+        )
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
         ax.grid(True, which="both")
@@ -1337,7 +1629,11 @@ class Plotter:
         return fig, ax
 
     @staticmethod
-    def plot_camberline(airfoil: Airfoil, debug: bool = False):
+    def plot_camberline(
+        airfoil: Airfoil,
+        debug: bool = False,
+        title: Optional[str] = None,
+    ):
         """Plots the camber line in Matplotlib.
         Note: This operation is blocking until the plot window is closed, and is primarily meant to be used for debugging purposes.
         If the `debug` flag is explicitly passed in as `True`, the actual points will be printed too.
@@ -1358,14 +1654,19 @@ class Plotter:
         plt.plot(x, y, marker="o")
         plt.xlabel("x")
         plt.ylabel("y")
-        plt.title(f"Camber line for {airfoil.get_name()}")
+        plt.title(
+            title if title is not None else f"Camber line for {airfoil.get_name()}"
+        )
         plt.axis("equal")
         plt.grid(True)
         plt.show()
 
     @staticmethod
     def plot_points(
-        points: np.ndarray, debug: bool = False, airfoil: Optional[Airfoil] = None
+        points: np.ndarray,
+        debug: bool = False,
+        airfoil: Optional[Airfoil] = None,
+        title: Optional[str] = None,
     ):
         """A more general method than `plot_camberline()`, this method simply plots
         a series of points which are passed in. Useful for visualising rotational transformations.
@@ -1382,10 +1683,8 @@ class Plotter:
             print(y)
             print(points)
 
-        if airfoil:
-            title = airfoil.get_name()
-        else:
-            title = "Point plot"
+        if title is None:
+            title = airfoil.get_name() if airfoil else "Point plot"
 
         plt.figure()
         plt.plot(x, y, marker="o")
