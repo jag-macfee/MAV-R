@@ -27,24 +27,16 @@ def plot_cambered_response():
 
     impulse_delayed = lambda t: impulse_gust(t - delta_t * spinup_steps)
 
-    # try 2 sims - one with no gust and one with an impulse gust ONLY after it has reached
-    # a relatively steady-state
-    no_gust_simulation = Solver(
-        af1, None, total_steps, (U_inf, no_vertical_gust), alpha
-    )
+    # Let the cambered airfoil reacha a steady state first before applying impulse
     gust_simulation = Solver(af1, None, total_steps, (U_inf, impulse_delayed), alpha)
 
     # run sim
-    baseline_result = no_gust_simulation.solve()
     gust_result = gust_simulation.solve()
 
-    baseline_lift = baseline_result.lift_history
     gust_lift = gust_result.lift_history
 
     start_index = spinup_steps
-    incremental_lift = [
-        gust_lift[i] - baseline_lift[i] for i in range(start_index, total_steps)
-    ]
+    incremental_lift = [gust_lift[i] for i in range(start_index, total_steps)]
 
     normalised_frequency, response_squared = (
         ResultUtils.extract_lift_frequency_response(
