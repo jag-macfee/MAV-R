@@ -13,7 +13,7 @@ U_inf = 15
 delta_t = c / (N * U_inf)  # timestep len - for use in impulse gust formulation
 
 # Defined time-dependent functions for vertical gust
-v_0 = 1.0
+v_0 = 0.5
 
 no_vertical_gust = lambda t: 0
 suddenly_imposed_gust = lambda t: v_0

@@ -17,11 +17,12 @@ from config import (
 )
 
 from examples.alpha_vs_imposed_gust import compare_alpha_vs_imposed_gust
+from examples.cambered_frequency_response import plot_cambered_response
 
 
 ## RUN CODE HERE
 def main():
-    compare_alpha_vs_imposed_gust()
+    plot_cambered_response()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import numpy as np
 
 from config import (
@@ -51,6 +52,55 @@ def plot_cambered_response():
     )
 
     Plotter.plot_precalculated_lift_history(incremental_lift, gust_simulation)
-    Plotter.plot_lift_frequency_spectrum_from_calculated_response(
-        normalised_frequency, response_squared
+
+    frequency_fig, frequency_ax = (
+        Plotter.plot_lift_frequency_spectrum_from_calculated_response(
+            normalised_frequency,
+            response_squared,
+            show=False,
+        )
     )
+
+    solver_response_line = frequency_ax.lines[0]
+    sears_response_line = frequency_ax.lines[1]
+
+    lysak_csv = "static/data/lysak_cambered_airfoil_frequency_response.csv"
+
+    fig, ax = Plotter.plot_results_against_reference_data(
+        reference_data=[
+            (
+                lysak_csv,
+                "Lysak thick cambered airfoil",
+            )
+        ],
+        calculated_data=[
+            (
+                solver_response_line,
+                "Solver thin cambered airfoil",
+            ),
+            (
+                sears_response_line,
+                "Sears approximation",
+            ),
+        ],
+        x_label=r"Normalised frequency, $fc/U_\infty$",
+        y_label=(
+            r"Normalised lift response, "
+            r"$|\mathrm{DFT}(L)|^2/(\pi \rho c v_0 U_\infty)^2$"
+        ),
+        title="Solver thin cambered response vs. Lysak thick camber prediction",
+        link_colours_by_index=False,
+        show=False,
+    )
+
+    ax.lines[2].set_linestyle("--")
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(1.0e-2, 1.0e2)
+    ax.set_ylim(1.0e-4, 1.0e1)
+    ax.grid(True, which="both")
+
+    plt.close(frequency_fig)
+
+    plt.show()
