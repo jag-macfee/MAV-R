@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Uni
 
 import matplotlib.pyplot as plt
 import numpy as np
+from cycler import cycler
 from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, Slider
 
@@ -14,11 +15,119 @@ if TYPE_CHECKING:
     from src.solver import SolveResult
 
 
+# Publication-oriented Matplotlib defaults. The text font uses a serif family and
+# math uses Computer Modern so exported figures sit naturally alongside LaTeX.
+# ``text.usetex`` is deliberately left disabled so plotting does not require a
+# local LaTeX installation.
+_PUBLICATION_COLOURS = (
+    "#0072B2",  # blue
+    "#D55E00",  # vermillion
+    "#009E73",  # bluish green
+    "#CC79A7",  # reddish purple
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#000000",  # black
+)
+
+_PUBLICATION_STYLE = {
+    "figure.figsize": (6.3, 3.9),
+    "figure.dpi": 120,
+    "figure.facecolor": "white",
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.05,
+    "savefig.facecolor": "white",
+    "font.family": "serif",
+    "font.serif": [
+        "Computer Modern",
+        "CMU Serif",
+        "STIX Two Text",
+        "DejaVu Serif",
+    ],
+    "font.size": 9.0,
+    "mathtext.fontset": "cm",
+    "axes.prop_cycle": cycler(color=_PUBLICATION_COLOURS),
+    "axes.labelsize": 9.0,
+    "axes.titlesize": 10.0,
+    "axes.titleweight": "normal",
+    "axes.titlepad": 8.0,
+    "axes.labelpad": 5.0,
+    "axes.linewidth": 0.8,
+    "axes.axisbelow": True,
+    "axes.formatter.use_mathtext": True,
+    "axes.formatter.limits": (-3, 4),
+    "xtick.labelsize": 8.0,
+    "ytick.labelsize": 8.0,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.top": True,
+    "ytick.right": True,
+    "xtick.major.size": 4.0,
+    "ytick.major.size": 4.0,
+    "xtick.minor.size": 2.5,
+    "ytick.minor.size": 2.5,
+    "xtick.major.width": 0.8,
+    "ytick.major.width": 0.8,
+    "xtick.minor.width": 0.6,
+    "ytick.minor.width": 0.6,
+    "lines.linewidth": 1.4,
+    "lines.markersize": 4.0,
+    "legend.fontsize": 8.0,
+    "legend.frameon": False,
+    "legend.handlelength": 2.4,
+    "legend.borderaxespad": 0.5,
+    "grid.color": "0.70",
+    "grid.linewidth": 0.5,
+    "grid.alpha": 0.30,
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+}
+
+# Apply the style automatically to every Plotter figure.
+plt.rcParams.update(_PUBLICATION_STYLE)
+
+
 class Plotter:
     """
     Contains methods for visualising solver outputs.
     Does not contain solver logic.
     """
+
+    @staticmethod
+    def apply_publication_style() -> None:
+        """Reapply the publication-oriented Matplotlib defaults used by Plotter.
+
+        The style uses serif text, Computer Modern mathematics, restrained
+        colour-blind-safe colours, inward ticks, thin axes, and export settings
+        suited to figures embedded in a LaTeX report.
+        """
+        plt.rcParams.update(_PUBLICATION_STYLE)
+
+    @staticmethod
+    def _style_axes(ax: plt.Axes, log_grid: bool = False) -> None:
+        """Apply consistent publication formatting to a two-dimensional axes."""
+        ax.minorticks_on()
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+        )
+
+        ax.grid(
+            True,
+            which="major",
+            linewidth=0.5,
+            alpha=0.30,
+        )
+        if log_grid:
+            ax.grid(
+                True,
+                which="minor",
+                linewidth=0.35,
+                alpha=0.12,
+            )
 
     @staticmethod
     def _prepare_combined_gamma_history(
@@ -295,7 +404,7 @@ class Plotter:
                 bound_x[timestep_index],
                 bound_timestep_values,
                 bound_gamma[timestep_index],
-                color="tab:blue",
+                color=_PUBLICATION_COLOURS[0],
                 linestyle="-",
                 marker="o",
                 markersize=2.5,
@@ -314,7 +423,7 @@ class Plotter:
                     wake_x[timestep_index],
                     wake_timestep_values,
                     wake_gamma[timestep_index],
-                    color="tab:orange",
+                    color=_PUBLICATION_COLOURS[1],
                     linestyle=":",
                     marker="x",
                     markersize=3.0,
@@ -479,7 +588,7 @@ class Plotter:
                 else "Bound and Wake Circulation at Selected Time Steps"
             )
 
-        ax.grid(True)
+        Plotter._style_axes(ax)
 
         timestep_legend = ax.legend(
             handles=timestep_handles,
@@ -791,7 +900,7 @@ class Plotter:
             scale_units="xy",
             scale=1.0,
             pivot="tail",
-            color="green",
+            color=_PUBLICATION_COLOURS[2],
             width=0.004,
             headwidth=4.5,
             headlength=6.0,
@@ -833,7 +942,7 @@ class Plotter:
         ax.set_aspect("equal", adjustable="box")
         ax.set_xlabel("x position")
         ax.set_ylabel("z position")
-        ax.grid(True)
+        Plotter._style_axes(ax)
         ax.legend(loc="upper right")
 
         slider_axis = fig.add_axes([0.16, 0.075, 0.62, 0.035])
@@ -1108,7 +1217,7 @@ class Plotter:
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
         ax.set_title(title)
-        ax.grid(True)
+        Plotter._style_axes(ax)
         ax.legend()
 
         plt.tight_layout()
@@ -1143,7 +1252,7 @@ class Plotter:
         ax.set_xlabel(r"Normalised time, $tU_\infty/c$")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-        ax.grid(True)
+        Plotter._style_axes(ax)
         if label is not None:
             ax.legend()
 
@@ -1335,7 +1444,7 @@ class Plotter:
         ax.set_title(
             title if title is not None else "Lift Compared with Wagner's Function"
         )
-        ax.grid(True)
+        Plotter._style_axes(ax)
         ax.legend()
 
         plt.tight_layout()
@@ -1427,7 +1536,7 @@ class Plotter:
             else "Step-Gust Lift Compared with Küssner's Function"
         )
         ax.set_ylim(top=1.0)
-        ax.grid(True)
+        Plotter._style_axes(ax)
         ax.legend()
 
         plt.tight_layout()
@@ -1552,7 +1661,7 @@ class Plotter:
         )
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
-        ax.grid(True, which="both")
+        Plotter._style_axes(ax, log_grid=True)
         ax.legend()
 
         plt.tight_layout()
@@ -1619,7 +1728,7 @@ class Plotter:
         )
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
-        ax.grid(True, which="both")
+        Plotter._style_axes(ax, log_grid=True)
         ax.legend()
 
         plt.tight_layout()
@@ -1650,15 +1759,16 @@ class Plotter:
             print(y)
             print(camber_points)
 
-        plt.figure()
-        plt.plot(x, y, marker="o")
-        plt.xlabel("x")
-        plt.ylabel("y")
-        plt.title(
+        fig, ax = plt.subplots()
+        ax.plot(x, y, marker="o")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title(
             title if title is not None else f"Camber line for {airfoil.get_name()}"
         )
-        plt.axis("equal")
-        plt.grid(True)
+        ax.set_aspect("equal", adjustable="box")
+        Plotter._style_axes(ax)
+        fig.tight_layout()
         plt.show()
 
     @staticmethod
@@ -1686,11 +1796,12 @@ class Plotter:
         if title is None:
             title = airfoil.get_name() if airfoil else "Point plot"
 
-        plt.figure()
-        plt.plot(x, y, marker="o")
-        plt.xlabel("x")
-        plt.ylabel("y")
-        plt.title(title)
-        plt.axis("equal")
-        plt.grid(True)
+        fig, ax = plt.subplots()
+        ax.plot(x, y, marker="o")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title(title)
+        ax.set_aspect("equal", adjustable="box")
+        Plotter._style_axes(ax)
+        fig.tight_layout()
         plt.show()
