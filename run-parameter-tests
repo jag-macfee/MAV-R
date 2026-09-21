@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [[ "$1" != "dmin" && "$1" != "nmax" && "$1" != "rmax" ]]; then
+    echo "Error: first argument must be one of: dmin, Nmax, rmax" >&2
+    exit 1
+fi
+
+python3 -m "parameter_testing.$1"
