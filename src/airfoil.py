@@ -233,10 +233,7 @@ class KarmanTrefftzAirfoil(Airfoil):
         # Von Karman-Trefftz exponent
         m = 2.0 - delta_te / np.pi
 
-        # Solve for sigma from Lysak's chord relation:
-        #
-        # c = 2 m sigma * (1 + epsilon)^m /
-        #     ((1 + epsilon)^m - epsilon^m)
+        # Solve for sigma from Lysak's chord relation
         sigma = (
             chord
             / (2.0 * m)
@@ -252,7 +249,7 @@ class KarmanTrefftzAirfoil(Airfoil):
 
         # Circle parameterisation
         # The theta shift makes theta = 0 correspond to the trailing edge zeta = sigma.
-        n_points = 1000  # We will take a resolution of 1000 points around the circle to transform
+        n_points = 1000
         theta = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
         zeta = mu + radius * np.exp(1j * (theta - theta_te))
 

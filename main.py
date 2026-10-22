@@ -18,11 +18,12 @@ from config import (
 
 from examples.alpha_vs_imposed_gust import compare_alpha_vs_imposed_gust
 from examples.cambered_frequency_response import plot_cambered_response
+from examples.compare_strategy_time import compare_strategy_time_wagner_and_sears
 
 
 ## RUN CODE HERE
 def main():
-    plot_cambered_response()
+    compare_strategy_time_wagner_and_sears()
 
 
 if __name__ == "__main__":
