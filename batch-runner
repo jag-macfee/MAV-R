@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Always execute from the project root (the directory containing this script),
+# so project-relative CSV paths and the local src package resolve consistently.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+exec python3 "$PROJECT_ROOT/batch_run.py" "$@"
