@@ -138,31 +138,9 @@ MAV-R/
 | `src/vortex_strategy.py` | Defines the `VortexLumpingStrategy` interface and the weighted-centroid implementation `WCStrategy`.                                                                                 |
 | `src/plotter.py`         | Visualises circulation history, the wake/flow field, lift histories, and frequency responses, with Matplotlib styles suitable for academic figures.                                  |
 
-### Numerical method
+### Numerical method caveats
 
-1. **Discretise geometry.** `Airfoil.camber()` returns `N + 1` points. After
-   rotation by the fixed angle of attack (specified in **degrees**), adjacent
-   points define `N` panels. Each panel has a bound vortex at one-quarter of
-   its length and a collocation point at three-quarters of its length.
-2. **Assemble the system.** The no-penetration boundary condition contributes
-   `N` equations. An additional equation enforcing Kelvin circulation
-   conservation closes the system for the `N` bound vortices and the newest
-   shed vortex. With stationary geometry, the `(N + 1) × (N + 1)` coefficient
-   matrix is assembled **once**, before time marching.
-3. **March in time.** At each time step, the right-hand side includes the
-   freestream, the chordwise-convecting gust, and the influence of previously
-   shed wake vortices. `numpy.linalg.solve` computes the new bound and shed
-   circulation, after which the wake vortices are convected by the evaluated
-   flow field. The baseline time step is
-   `Δt = (c/N) / U∞`.
-4. **Calculate lift.** Panel pressure jumps are evaluated using the unsteady
-   Bernoulli formulation, separating a circulation-related term from the time
-   derivative of cumulative bound circulation. Their vertically projected
-   forces give `L_total = L_circulatory + L_non_circulatory` (N/m).
-5. **Optionally simplify the wake.** A configured strategy is applied to the
-   convected wake after each step. Lumping reduces the number of vortices
-   participating in later steps, trading model fidelity for lower execution
-   cost. With `strategy=None`, no vortices are lumped.
+The entry point for the solver to run is creating an instance of `Solver()` and running the `.solve()` method. Time steps are evaluated sequentially, with vortex lumping applying at the end of each time step.
 
 The imposed gust is specified at the leading edge by `W(t)`. For a panel
 control point at chordwise position `x_i`, the local gust is evaluated with a
