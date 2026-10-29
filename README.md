@@ -208,7 +208,7 @@ frequency `fc/U∞` and squared, dimensionless response magnitude:
 
 ```math
 \frac{|H(f)|^2}{(\pi \rho c U_\infty)^2}
-= \frac{|\operatorname{DFT}[L_k]|^2}
+= \frac{|DFT(L_k)|^2}
        {(\pi \rho c U_\infty v_0)^2}.
 ```
 
