@@ -12,6 +12,8 @@ suction surfaces. Airfoil families with thickness parameters can be used to
 _construct_ a camber line, but the solver does **not** resolve thickness-related
 flow effects explicitly.
 
+This program was developed as part of Jun McPhee's undergraduate honour's thesis for Aerospace Engineering (UNSW).
+
 The codebase supports:
 
 - Flat plates, NACA 4-digit camber lines, and Kármán–Trefftz camber lines.
