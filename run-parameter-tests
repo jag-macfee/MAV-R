@@ -1,7 +1,22 @@
 #!/bin/bash
 
+if [[ "$1" == "all" ]]; then
+    echo
+    echo "Running ALL parameter tests for dmin, nmax, rmax"
+    echo
+
+    python3 -m "parameter_testing.dmin"
+    python3 -m "parameter_testing.nmax"
+    python3 -m "parameter_testing.rmax"
+
+    echo
+    echo "Parameter tests complete. Resulting plots can be found in paramter_testing/plots"
+    
+    exit 0
+fi
+
 if [[ "$1" != "dmin" && "$1" != "nmax" && "$1" != "rmax" ]]; then
-    echo "Error: first argument must be one of: dmin, Nmax, rmax" >&2
+    echo "Error: first argument must be one of: dmin, nmax, rmax, all" >&2
     exit 1
 fi
 

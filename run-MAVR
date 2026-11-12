@@ -1,7 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Exit immediately if something fails
-set -e
+set -euo pipefail
+
+# Always run from the project root so the launcher works from any directory.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
 
 # Check that python3 is installed
 if ! command -v python3 &> /dev/null; then
@@ -43,10 +47,21 @@ else
 
         if [ "$missing_packages" -eq 1 ]; then
             echo ""
-            echo "Error: Some required packages are missing."
-            echo "Install them using:"
-            echo "  python3 -m pip install -r requirements.txt"
-            exit 1
+            echo "Installing missing packages from requirements.txt..."
+            python3 -m pip install -r requirements.txt
+
+            # Confirm that installation completed before starting the solver.
+            while read -r requirement; do
+                # Skip empty lines and comments
+                [[ -z "$requirement" || "$requirement" =~ ^# ]] && continue
+
+                package=$(echo "$requirement" | sed 's/[<>=!~].*//')
+
+                if ! python3 -m pip show "$package" &> /dev/null; then
+                    echo "Error: Failed to install required package: $package" >&2
+                    exit 1
+                fi
+            done < requirements.txt
         fi
     else
         echo "No requirements.txt found. Skipping package checks."
