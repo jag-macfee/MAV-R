@@ -208,7 +208,7 @@ from src.solver import Solver
 airfoil = Airfoil.flat_plate(c=1.0, n_panels=40)
 
 def step_gust(t: float) -> float:
-    return 1.0 if t >= 0.5 else 0.0  # m/s, defined at the leading edge
+    return 1.0 if t >= 0 else 0.0  # m/s, defined at the leading edge
 
 solver = Solver(
     airfoil=airfoil,
