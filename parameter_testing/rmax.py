@@ -399,6 +399,23 @@ Plotter._style_axes(ax)
 fig.tight_layout()
 save_plot(fig, "kussner_time_fraction.png")
 
+# Accuracy-efficiency tradeoff for the impulse lift history.
+fig, ax = plt.subplots()
+ax.plot(impulse_time_fractions, lift_errors, marker="o")
+for i, rmax_over_dx in enumerate(RMAX_OVER_DX_VALUES):
+    ax.annotate(
+        f"{rmax_over_dx:g}",
+        (impulse_time_fractions[i], lift_errors[i]),
+        xytext=(4, 4),
+        textcoords="offset points",
+        fontsize=8,
+    )
+ax.set_xlabel(r"Impulse solver time fraction, $T_{WC}/T_{ref}$")
+ax.set_ylabel("Impulse lift NRMSE")
+Plotter._style_axes(ax)
+fig.tight_layout()
+save_plot(fig, "impulse_lift_error_vs_time_fraction.png")
+
 # Accuracy-efficiency tradeoff for the FRF.
 fig, ax = plt.subplots()
 ax.plot(impulse_time_fractions, frequency_errors_db, marker="o")
